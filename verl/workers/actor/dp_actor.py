@@ -343,37 +343,45 @@ class DataParallelPPOActor(BasePPOActor):
                 # pad back top-k if needed
                 topk_info = None
                 if teacher_topk_indices is not None:
-                    # teacher_topk_indices: (bsz, seqlen, topk) - already in full sequence format
-                    # Need to extract student logits at teacher indices
-                    # First pad back logits to full sequence
-                    full_logits = pad_input(
-                        hidden_states=logits_rmpad,  # (total_nnz, vocab_size)
+                    # NOTE: Avoid materializing the fully-padded (bsz, seqlen, vocab_size) tensor here.
+                    # `seqlen` is the *max padded* length, so when dynamic-bsz packs many short sequences
+                    # into one micro-batch, pad_input would create a (bsz, seqlen, vocab) tensor that can
+                    # be tens of GB and OOM (e.g. 16 x 5120 x 152064 in bf16 ~= 25 GB). Instead we compute
+                    # the student log-softmax on the already-packed (total_nnz, vocab) form, gather the
+                    # teacher top-k there, then pad back only the tiny (bsz, seqlen, topk). The result is
+                    # mathematically identical to the padded-path gather, just memory-bounded by total_nnz.
+                    import torch.nn.functional as F
+
+                    # unpad teacher top-k indices to packed form: (total_nnz, topk)
+                    teacher_topk_indices_rmpad = index_first_axis(
+                        rearrange(teacher_topk_indices, "b s k -> (b s) k"), indices
+                    )  # (total_nnz, topk)
+
+                    use_full_vocab = getattr(self.config.policy_loss, "soft_kd_student_full_vocab", False)
+                    if use_full_vocab:
+                        # full-vocab normalization over the packed logits
+                        student_full_log_probs_rmpad = F.log_softmax(logits_rmpad, dim=-1)  # (total_nnz, vocab)
+                        student_topk_log_probs_rmpad = torch.gather(
+                            student_full_log_probs_rmpad,
+                            dim=-1,
+                            index=teacher_topk_indices_rmpad,
+                        )  # (total_nnz, topk)
+                    else:
+                        # re-normalize within top-k only
+                        student_topk_logits_rmpad = torch.gather(
+                            logits_rmpad,
+                            dim=-1,
+                            index=teacher_topk_indices_rmpad,
+                        )  # (total_nnz, topk)
+                        student_topk_log_probs_rmpad = F.log_softmax(student_topk_logits_rmpad, dim=-1)  # (total_nnz, topk)
+
+                    # pad back to (bsz, seqlen, topk) for downstream concat/restore (topk is tiny -> cheap)
+                    student_topk_log_probs = pad_input(
+                        hidden_states=student_topk_log_probs_rmpad,  # (total_nnz, topk)
                         indices=indices,
                         batch=batch_size,
                         seqlen=seqlen,
-                    )  # (bsz, seqlen, vocab_size)
-
-                    # Extract student log probs at teacher indices
-                    # teacher_topk_indices: (bsz, seqlen, topk)
-                    # full_logits: (bsz, seqlen, vocab_size)
-                    import torch.nn.functional as F
-                    use_full_vocab = getattr(self.config.policy_loss, "soft_kd_student_full_vocab", False)
-                    if use_full_vocab:
-                        # Use full-vocab normalization, then gather teacher indices
-                        student_full_log_probs = F.log_softmax(full_logits, dim=-1)  # (bsz, seqlen, vocab_size)
-                        student_topk_log_probs = torch.gather(
-                            student_full_log_probs,
-                            dim=-1,
-                            index=teacher_topk_indices,
-                        )  # (bsz, seqlen, topk)
-                    else:
-                        # Re-normalize within top-k only
-                        student_topk_logits = torch.gather(
-                            full_logits,
-                            dim=-1,
-                            index=teacher_topk_indices,
-                        )  # (bsz, seqlen, topk)
-                        student_topk_log_probs = F.log_softmax(student_topk_logits, dim=-1)  # (bsz, seqlen, topk)
+                    )  # (bsz, seqlen, topk)
                     topk_info = (student_topk_log_probs, teacher_topk_indices)
                 elif topk_log_probs_rmpad is not None:
                     # topk_log_probs_rmpad: (total_nnz, topk)
