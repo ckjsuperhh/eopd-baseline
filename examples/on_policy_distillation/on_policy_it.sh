@@ -43,8 +43,12 @@ TRAIN_FILE=${TRAIN_FILE:-"/data/math/train.parquet"}
 VAL_FILE=${VAL_FILE:-"/data/math500/test.parquet"}
 
 # ========================== 资源（按需修改） ==========================
+# 默认按 8×4090-48GB 单节点配置；其他卡数/节点数用环境变量覆盖
 NNODES=${NNODES:-1}
 N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-8}
+# vLLM 在每张卡上预留的显存比例。4090-48GB 显存充裕，从 0.5 提到 0.6 给 KV cache；
+# 若训练更新阶段（权重从 CPU offload 回 GPU）OOM，可降到 0.5 或更低
+GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.6}
 PROJECT_NAME=${PROJECT_NAME:-"EOPD"}
 EXP_NAME=${EXP_NAME:-"Qwen3-1.7B-Base-MATH"}
 
@@ -144,7 +148,7 @@ python3 -m verl.trainer.main_ppo \
     \
     actor_rollout_ref.rollout.n=${N_RESP_PER_PROMPT} \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEM_UTIL} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH)) \
     actor_rollout_ref.rollout.temperature=1.0 \
