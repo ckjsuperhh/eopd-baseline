@@ -51,7 +51,7 @@ VAL_FILE=${VAL_FILE:-"/data/math500/test.parquet"}
 # ========================== 资源（按需修改） ==========================
 # 默认按 4×A6000-48GB 单节点配置；其他卡数/节点数用环境变量覆盖
 NNODES=${NNODES:-1}
-N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-4}
+N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-8}
 # vLLM 在每张卡上预留的显存比例。48GB 充裕，0.5 给 KV cache；
 # 若训练更新阶段 OOM，可降到 0.4 或更低
 GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.3}

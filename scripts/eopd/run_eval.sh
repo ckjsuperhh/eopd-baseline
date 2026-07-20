@@ -13,8 +13,8 @@
 # 可调环境变量（含默认值）：
 #   MODEL_PATH      （必需）HF 格式 checkpoint 目录
 #   DATA_DIR        $HOME/data            六个基准 parquet 所在父目录
-#   CUDA_VISIBLE_DEVICES  0,1,2,3
-#   N_GPUS_PER_NODE  4
+#   CUDA_VISIBLE_DEVICES  0,1,2,3,4,5,6,7
+#   N_GPUS_PER_NODE  8
 #   GPU_MEM_UTIL     0.5
 #   OFFLINE          0
 set -e
@@ -51,8 +51,10 @@ fi
 export VLLM_USE_V1=1
 
 export DATA_DIR="${DATA_DIR:-$HOME/data}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
-export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
+# 默认用满本机所有 GPU（单机 8 卡时即 0..7）。
+# 共享机器请显式覆盖，例如：CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 export GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.5}"
 
 cd "$REPO_ROOT"

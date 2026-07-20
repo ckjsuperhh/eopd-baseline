@@ -21,8 +21,8 @@
 # 可调环境变量（含默认值）：
 #   CONDA_ENV        eopd
 #   DATA_DIR         $HOME/data   (与预处理/评测共用；train/val 默认从这里取)
-#   CUDA_VISIBLE_DEVICES  0,1,2,3
-#   N_GPUS_PER_NODE  4
+#   CUDA_VISIBLE_DEVICES  0,1,2,3,4,5,6,7
+#   N_GPUS_PER_NODE  8
 #   GPU_MEM_UTIL     0.3
 #   HF_HOME          $HOME/hf_cache
 #   HF_ENDPOINT      https://hf-mirror.com
@@ -69,8 +69,11 @@ VAL_FILE="${VAL_FILE:-$DATA_DIR/math500/test.parquet}"
 echo "[run_eopd] TRAIN_FILE=$TRAIN_FILE"
 echo "[run_eopd] VAL_FILE=$VAL_FILE"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
-export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
+# 默认用满本机所有 GPU（单机 8 卡时即 0..7）。
+# apex 等共享机器请显式覆盖，例如：
+#   CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4 bash run_eopd.sh
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 export GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.3}"
 export METHOD=eopd
 # Checkpoint root passed through to on_policy_it.sh (CKPT_BASE="${CKPT_DIR:-/ckpts}").
