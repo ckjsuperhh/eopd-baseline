@@ -57,6 +57,9 @@ N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-4}
 GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.3}
 PROJECT_NAME=${PROJECT_NAME:-"EOPD"}
 EXP_NAME=${EXP_NAME:-"Qwen3-1.7B-Base-MATH"}
+# Checkpoint root. Override with CKPT_DIR env var on machines where /ckpts is not
+# writable / does not exist (e.g. apex-llm has no /ckpts; use ~/ckpts there).
+CKPT_BASE=${CKPT_DIR:-/ckpts}
 
 # ========================== 超参（论文 Appendix A, Table 9：On-policy distillation） ==========================
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-128}
@@ -174,7 +177,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=20 \
     trainer.test_freq=10 \
     trainer.val_before_train=True \
-    trainer.default_local_dir="/ckpts/${PROJECT_NAME}/${EXP_NAME}" \
+    trainer.default_local_dir="${CKPT_BASE}/${PROJECT_NAME}/${EXP_NAME}" \
     ++trainer.checkpoint.save_contents=["model","optimizer","extra","hf_model"] \
     trainer.resume_mode=auto \
     "${EXTRA_ARGS[@]}" \

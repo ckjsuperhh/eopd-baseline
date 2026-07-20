@@ -65,6 +65,9 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
 export GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.3}"
 export METHOD=eopd
+# Checkpoint root passed through to on_policy_it.sh (CKPT_BASE="${CKPT_DIR:-/ckpts}").
+# Override when /ckpts is not writable, e.g. CKPT_DIR=$HOME/ckpts bash scripts/eopd/run_eopd.sh
+export CKPT_DIR="${CKPT_DIR:-/ckpts}"
 
 cd "$REPO_ROOT"
 bash examples/on_policy_distillation/on_policy_it.sh
