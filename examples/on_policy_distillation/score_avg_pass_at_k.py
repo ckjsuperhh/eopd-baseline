@@ -93,6 +93,11 @@ def main():
         default=[],
         help="Repeatable: BENCHMARK_NAME=/path/to/generation.parquet",
     )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Optional path to write a machine-readable JSON summary of results.",
+    )
     args = parser.parse_args()
 
     if not args.input:
@@ -125,6 +130,18 @@ def main():
         micro_pass = np.mean([r["pass"] for r in results])
         print(f"{'MEAN (simple)':<16}{'':>6}{'':>4}{micro_avg:>11.2f}%{micro_pass:>11.2f}%")
     print()
+
+    if args.output:
+        import json
+
+        payload = {
+            "per_benchmark": results,
+            "mean_avg_at_k": float(micro_avg) if results else 0.0,
+            "mean_pass_at_k": float(micro_pass) if results else 0.0,
+        }
+        with open(args.output, "w") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        print(f"[score_avg_pass_at_k] JSON summary written -> {args.output}")
 
 
 if __name__ == "__main__":

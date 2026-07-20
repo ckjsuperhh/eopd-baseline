@@ -25,7 +25,7 @@ def main():
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
     ds = ds.select_columns(keep)
     os.makedirs(args.local_save_dir, exist_ok=True)
-    out = os.path.join(args.local_save_dir, "olympiadbench.parquet")
+    out = os.path.join(args.local_save_dir, "test.parquet")
     ds.to_parquet(out)
     with open(os.path.join(args.local_save_dir, "olympiadbench_example.json"), "w") as f:
         json.dump(ds[0], f, indent=2, ensure_ascii=False, default=str)

@@ -17,7 +17,7 @@ def main():
                 "extra_info": {"split": args.split, "index": idx}}
     ds = ds.map(function=process_fn, with_indices=True)
     os.makedirs(args.local_save_dir, exist_ok=True)
-    out = os.path.join(args.local_save_dir, "aime25.parquet")
+    out = os.path.join(args.local_save_dir, "test.parquet")
     ds.to_parquet(out)
     with open(os.path.join(args.local_save_dir, "aime25_example.json"), "w") as f:
         json.dump(ds[0], f, indent=2, ensure_ascii=False)

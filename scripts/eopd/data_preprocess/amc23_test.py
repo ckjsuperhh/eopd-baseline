@@ -25,7 +25,7 @@ if __name__ == "__main__":
     print(f"amc23 loaded: {len(ds)} rows, features={ds.features}", flush=True)
     ds = ds.map(function=make_map_fn("test"), with_indices=True)
     os.makedirs(args.local_save_dir, exist_ok=True)
-    out = os.path.join(args.local_save_dir, "amc23.parquet")
+    out = os.path.join(args.local_save_dir, "test.parquet")
     ds.to_parquet(out)
     with open(os.path.join(args.local_save_dir, "amc23_example.json"), "w") as f:
         json.dump(ds[0], f, indent=2, ensure_ascii=False)

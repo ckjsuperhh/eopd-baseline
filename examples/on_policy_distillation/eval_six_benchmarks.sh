@@ -38,9 +38,17 @@ MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS:-$((MAX_PROMPT_LENGTH + MAX_RESP
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-64}    # 每个生成 batch 的 prompt 数
 
 # ========================== 数据路径（预处理输出） ==========================
-DATA_DIR=${DATA_DIR:-"/data"}
-GEN_DIR=${GEN_DIR:-"/data/eval_gen"}
-mkdir -p "${GEN_DIR}"
+# 与 run_all_preprocess.sh / run_eopd.sh 共用同一个 DATA_DIR：
+#   基准输入: $DATA_DIR/<bench>/test.parquet
+#   生成样本: $DATA_DIR/eval_gen/<bench>.parquet   (自动落盘，可复用)
+#   评测分数: $DATA_DIR/eval_results/<MODEL_TAG>_scores.{txt,json}  (自动落盘)
+DATA_DIR=${DATA_DIR:-"$HOME/data"}
+GEN_DIR=${GEN_DIR:-"$DATA_DIR/eval_gen"}
+RESULT_DIR=${RESULT_DIR:-"$DATA_DIR/eval_results"}
+mkdir -p "${GEN_DIR}" "${RESULT_DIR}"
+MODEL_TAG="$(basename "$(dirname "${MODEL_PATH}")")_$(basename "${MODEL_PATH}")"
+SCORE_TXT="$RESULT_DIR/${MODEL_TAG}_scores.txt"
+SCORE_JSON="$RESULT_DIR/${MODEL_TAG}_scores.json"
 
 BENCHMARKS=(MATH500 AMC23 Minerva OlympiadBench AIME24 AIME25)
 INPUT_PATHS=(
@@ -84,5 +92,10 @@ done
 
 # ========================== Step 2: 计算 Avg@8 / Pass@8 ==========================
 echo "===== Scoring all benchmarks ====="
+echo "Scores will be saved to:"
+echo "  $SCORE_TXT"
+echo "  $SCORE_JSON"
 python3 examples/on_policy_distillation/score_avg_pass_at_k.py \
-    $(printf -- "--input %s " "${SCORE_INPUTS[@]}")
+    --output "$SCORE_JSON" \
+    $(printf -- "--input %s " "${SCORE_INPUTS[@]}") | tee "$SCORE_TXT"
+echo "DONE. 评测分数已存: $SCORE_TXT  (机器可读: $SCORE_JSON)"

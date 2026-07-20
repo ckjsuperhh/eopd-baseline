@@ -3,10 +3,12 @@
 #   EOPD = clipped reverse KL (OPD) + entropy-gated forward-KL on high-entropy teacher tokens.
 #
 # 用法（在仓库根目录执行）：
+#   # 最简：设好模型路径即可，train/val 默认从 DATA_DIR 取
 #   STUDENT_MODEL_PATH=/path/to/Qwen3-1.7B-Base \
 #   TEACHER_MODEL_PATH=/path/to/Qwen3-8B \
-#   TRAIN_FILE=/path/to/math/train.parquet \
-#   VAL_FILE=/path/to/math500/test.parquet \
+#     bash scripts/eopd/run_eopd.sh
+#   # 或单独覆盖数据路径：
+#   DATA_DIR=/inspire/.../dk/data STUDENT_MODEL_PATH=... TEACHER_MODEL_PATH=... \
 #     bash scripts/eopd/run_eopd.sh
 #
 # 关键环境约定（详见 ../../setup_env.sh）：
@@ -18,6 +20,7 @@
 #
 # 可调环境变量（含默认值）：
 #   CONDA_ENV        eopd
+#   DATA_DIR         $HOME/data   (与预处理/评测共用；train/val 默认从这里取)
 #   CUDA_VISIBLE_DEVICES  0,1,2,3
 #   N_GPUS_PER_NODE  4
 #   GPU_MEM_UTIL     0.3
@@ -56,10 +59,15 @@ fi
 export VLLM_USE_V1=1
 
 # ---- 必需的模型 / 数据路径 ----
+# 数据默认从 DATA_DIR 取（与 run_all_preprocess.sh / eval_six_benchmarks.sh 共用），
+# 也可单独用 TRAIN_FILE/VAL_FILE 覆盖。
+DATA_DIR="${DATA_DIR:-$HOME/data}"
+TRAIN_FILE="${TRAIN_FILE:-$DATA_DIR/dapo_math17k.parquet}"
+VAL_FILE="${VAL_FILE:-$DATA_DIR/math500/test.parquet}"
 : "${STUDENT_MODEL_PATH:?请设置 STUDENT_MODEL_PATH (Qwen3-1.7B-Base 快照目录)}"
 : "${TEACHER_MODEL_PATH:?请设置 TEACHER_MODEL_PATH (Qwen3-8B 快照目录)}"
-: "${TRAIN_FILE:?请设置 TRAIN_FILE (MATH 训练 parquet)}"
-: "${VAL_FILE:?请设置 VAL_FILE (MATH500 验证 parquet)}"
+echo "[run_eopd] TRAIN_FILE=$TRAIN_FILE"
+echo "[run_eopd] VAL_FILE=$VAL_FILE"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
