@@ -108,6 +108,7 @@ for i in "${!BENCHMARKS[@]}"; do
         model.path="${MODEL_PATH}" \
         +model.trust_remote_code=True \
         ++model.override_config.attn_implementation=sdpa \
+        ++rollout.name=hf \
         rollout.temperature=${TEMPERATURE} \
         rollout.top_p=${TOP_P} \
         rollout.top_k=-1 \
