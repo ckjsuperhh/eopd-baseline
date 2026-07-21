@@ -19,6 +19,11 @@
 
 set -x
 
+# 评测的 rollout worker 用 FSDP1，初始化时会做跨卡参数广播，要求 GPU 间 P2P 访问；
+# 在容器/多卡拓扑下 P2P 可能不可用（NCCL: peer access is not supported）。
+# 禁用 P2P 让 NCCL 走主机端传输，计算正确性不受影响（仅略慢）。
+export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
+
 # ========================== 环境（与训练一致，必须用 eopd 环境的 torch/math-verify） ==========================
 # 否则会用到 base conda 的 python，其 torch 没有 DTensor、且未装 math-verify，导致整批报错。
 # 做法：先尝试 conda activate；若当前 python 的 torch 仍缺 DTensor，则回退到 eopd 环境的绝对路径。
