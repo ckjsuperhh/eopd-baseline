@@ -19,6 +19,14 @@
 
 set -x
 
+# ========================== 环境（与训练一致，必须用 eopd 环境的 torch/math-verify） ==========================
+# 否则会用到 base conda 的 python，其 torch 没有 DTensor、且未装 math-verify，导致整批报错。
+CONDA_BASE="$(conda info --base 2>/dev/null)" || true
+[ -n "$CONDA_BASE" ] && source "$CONDA_BASE/etc/profile.d/conda.sh" 2>/dev/null
+[ -z "$CONDA_BASE" ] && source "$HOME/miniconda3/etc/profile.d/conda.sh" 2>/dev/null || true
+conda activate "${CONDA_ENV:-eopd}"
+echo "Using python: $(command -v python3)  (torch: $(python3 -c 'import torch,sys;print(torch.__version__,sys.executable)' 2>/dev/null))"
+
 # ========================== 评测模型 ==========================
 MODEL_PATH=${MODEL_PATH:-"/models/Qwen3-1.7B-Base"}   # 指向训练后的 HF checkpoint
 
