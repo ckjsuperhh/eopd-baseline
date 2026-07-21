@@ -36,7 +36,7 @@ fi
 conda activate "${CONDA_ENV:-eopd}" 2>/dev/null || true
 
 if ! python3 -c "from torch.distributed.tensor import DTensor" >/dev/null 2>&1; then
-  _eopd_py="/opt/conda/envs/${CONDA_ENV:-eopd}/bin/python3"
+  _eopd_py="${CONDA_BASE}/envs/${CONDA_ENV:-eopd}/bin/python3"
   if [ -x "$_eopd_py" ]; then
     PY="$_eopd_py"
   else
