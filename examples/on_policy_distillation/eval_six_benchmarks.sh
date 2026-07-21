@@ -102,6 +102,7 @@ for i in "${!BENCHMARKS[@]}"; do
         data.output_path="${OUT}" \
         model.path="${MODEL_PATH}" \
         +model.trust_remote_code=True \
+        ++model.override_config.attn_implementation=sdpa \
         rollout.temperature=${TEMPERATURE} \
         rollout.top_p=${TOP_P} \
         rollout.top_k=-1 \
