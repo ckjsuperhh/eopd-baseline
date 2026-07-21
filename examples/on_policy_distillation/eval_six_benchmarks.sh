@@ -114,6 +114,7 @@ for i in "${!BENCHMARKS[@]}"; do
         rollout.prompt_length=${MAX_PROMPT_LENGTH} \
         rollout.response_length=${MAX_RESPONSE_LENGTH} \
         rollout.tensor_model_parallel_size=${TP} \
+        ++rollout.pipeline_model_parallel_size=1 \
         rollout.gpu_memory_utilization=${GPU_MEM_UTIL} \
         rollout.max_num_batched_tokens=${MAX_NUM_BATCHED_TOKENS}
 
