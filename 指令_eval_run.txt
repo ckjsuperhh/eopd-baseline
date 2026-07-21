@@ -1,0 +1,34 @@
+# ============================================================
+# 评测运行：自动挑选 huggingface 权重完整的 step（新 VM / 8 卡）
+# ============================================================
+# 背景：global_step_330 是训练最后一步，其 huggingface 导出被收尾报错
+#       (DataLoader worker killed) 打断——目录里有 config 但【没有权重文件】。
+#       所以用差 10 步的更早 step（如 320，正常 save_freq=20 保存的）评测完全可行，
+#       对 Table 2 可忽略。本脚本会自动扫描并选用「huggingface 权重文件最多」的 step。
+#
+# 用法：cd 到仓库根目录后，整段复制执行。
+#       （脚本会自动 conda activate eopd 并用 eopd 环境的 python，避免之前的 DTensor 报错）
+
+CKPT=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD
+
+echo "==== 各 step 的 huggingface 权重文件数（>0 即完整）===="
+for d in "$CKPT"/global_step_*/actor/huggingface; do
+  n=$(ls "$d" 2>/dev/null | grep -cE 'safetensors|pytorch_model')
+  echo "$(basename "$(dirname "$(dirname "$d")")"): $n"
+done
+
+# 自动选用权重文件数最多的 step
+STEP=$(for d in "$CKPT"/global_step_*/actor/huggingface; do
+  n=$(ls "$d" 2>/dev/null | grep -cE 'safetensors|pytorch_model')
+  echo "$n $(basename "$(dirname "$(dirname "$d")")")"
+done | sort -n | tail -1 | awk '{print $2}')
+
+echo "==== 选用 step: $STEP ===="
+MODEL_PATH="$CKPT/$STEP/actor/huggingface" \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# 跑完分数在：
+#   /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results/<MODEL_TAG>_scores.txt
+#   （末尾有每个基准的 Avg@8 / Pass@8 及两项的均值 mean_avg_at_k / mean_pass_at_k）
