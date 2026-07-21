@@ -61,9 +61,9 @@ export VLLM_USE_V1=1
 # ---- 必需的模型 / 数据路径 ----
 # 数据默认从 DATA_DIR 取（与 run_all_preprocess.sh / eval_six_benchmarks.sh 共用），
 # 也可单独用 TRAIN_FILE/VAL_FILE 覆盖。
-DATA_DIR="${DATA_DIR:-$HOME/data}"
-TRAIN_FILE="${TRAIN_FILE:-$DATA_DIR/dapo_math17k.parquet}"
-VAL_FILE="${VAL_FILE:-$DATA_DIR/math500/test.parquet}"
+export DATA_DIR="${DATA_DIR:-$HOME/data}"
+export TRAIN_FILE="${TRAIN_FILE:-$DATA_DIR/dapo_math17k.parquet}"
+export VAL_FILE="${VAL_FILE:-$DATA_DIR/math500/test.parquet}"
 : "${STUDENT_MODEL_PATH:?请设置 STUDENT_MODEL_PATH (Qwen3-1.7B-Base 快照目录)}"
 : "${TEACHER_MODEL_PATH:?请设置 TEACHER_MODEL_PATH (Qwen3-8B 快照目录)}"
 echo "[run_eopd] TRAIN_FILE=$TRAIN_FILE"
