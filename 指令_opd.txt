@@ -1,0 +1,86 @@
+# ============================================================
+# OPD 训练 + 评测使用说明（对应论文 Table 2 的 OPD baseline）
+# ============================================================
+# OPD = on-policy distillation，仅 clipped reverse KL（不含 EOPD 的熵门控 forward-KL）。
+# 与 EOPD 的区别【仅 METHOD 一个开关】：
+#   - EOPD : METHOD=eopd  -> 额外在教师高熵 token 上加 entropy-gated forward-KL
+#   - OPD  : METHOD=opd   -> 只保留 clipped reverse KL（baseline）
+# 两者共用同一套脚本、同一份训练数据、同一对学生/教师模型，只差这一个 flag。
+# 评测流程（6 基准 / Avg@8 / Pass@8）与 EOPD 完全相同，只是 MODEL_PATH 指向 OPD 的 checkpoint。
+
+# ---------- 0. 当前改动说明 ----------
+# run_eopd.sh 原本写死 METHOD=eopd；现已改为 export METHOD="${METHOD:-eopd}"，
+# 因此可直接用 METHOD=opd 覆盖。请先 git pull 拿到该改动。
+
+# ============================================================
+# 一、OPD 训练
+# ============================================================
+# 与 EOPD 跑法一致，只多一个 METHOD=opd 前缀。脚本会自动：
+#   conda activate eopd、注入 flash_attn shim（如需）、开 VLLM_USE_V1、PYTHONUNBUFFERED=1、
+#   从 DATA_DIR 取 dapo_math17k.parquet 与 math500/test.parquet、按 CKPT_DIR 存 checkpoint。
+
+# ===== 新 VM（8 卡，数据 dk/data，checkpoint /root/ckpts）=====
+METHOD=opd \
+STUDENT_MODEL_PATH=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base \
+TEACHER_MODEL_PATH=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-8B \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+CKPT_DIR=/root/ckpts \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 N_GPUS_PER_NODE=8 \
+  bash scripts/eopd/run_eopd.sh
+
+# ===== apex（4 卡 1,2,4,5，数据 $HOME/data，checkpoint $HOME/ckpts）=====
+METHOD=opd \
+STUDENT_MODEL_PATH=/models/Qwen3-1.7B-Base \
+TEACHER_MODEL_PATH=/models/Qwen3-8B \
+DATA_DIR=/home/kejiechen/data \
+CKPT_DIR=/home/kejiechen/ckpts \
+CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4 \
+  bash scripts/eopd/run_eopd.sh
+
+# 建议用 tmux 跑（训练会持续很久，断线不中断）：
+#   tmux new -d -s opd "上面的 METHOD=opd ... bash scripts/eopd/run_eopd.sh > /inspire/.../dk/CacheOPD/opd_train.log 2>&1"
+#   tmux attach -t opd     # 看实时日志；Ctrl-b d 退出（训练继续）
+
+# ---------- 训练产物 ----------
+# checkpoint 落在（PROJECT_NAME=EOPD, EXP_NAME=Qwen3-1.7B-Base-MATH-OPD）：
+#   新 VM : /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/global_step_XXX/actor/huggingface
+#   apex  : /home/kejiechen/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/global_step_XXX/actor/huggingface
+# 选最大的 global_step（看 latest_checkpointed_iteration.txt）。
+# 日志里出现 Final validation metrics: .../acc/mean@1 即训练收尾正常。
+
+# ============================================================
+# 二、OPD 评测（6 基准 / Avg@8 / Pass@8）
+# ============================================================
+# 与 指令_eval.txt 完全相同，只把 MODEL_PATH 指向 OPD 的 checkpoint。
+# 评测脚本会自动 conda activate eopd 并用 eopd 环境的 python（避免之前 base 的 DTensor 报错）。
+
+# ===== 新 VM（先确认步数）=====
+# cat /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/latest_checkpointed_iteration.txt
+MODEL_PATH=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ===== apex =====
+MODEL_PATH=/home/kejiechen/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/home/kejiechen/data \
+CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# 输出：
+#   生成样本 : $DATA_DIR/eval_gen/<BENCH>.parquet
+#   评测分数 : $DATA_DIR/eval_results/<MODEL_TAG>_scores.txt  （人读，末尾有各基准 Avg@8/Pass@8 及均值）
+#             $DATA_DIR/eval_results/<MODEL_TAG>_scores.json  （机读）
+
+# ============================================================
+# 三、拼 Table 2
+# ============================================================
+# 把 EOPD 与 OPD 的 scores.txt 末尾「mean_avg_at_k / mean_pass_at_k」两行摆一起即可：
+#   - EOPD : 用 指令_eval.txt 评出来的 <...EOPD...>_scores.txt
+#   - OPD  : 用本文件评出来的 <...OPD...>_scores.txt
+# 两者取相同的 global_step（或各自 best）做对比。
+
+# ---------- 注意事项 ----------
+# - 务必等对应训练跑完、且 GPU 空闲时再跑评测（评测会占卡）。
+# - OPD 训练步数与 EOPD 应一致（同数据 3 epoch），方便直接对比。
+# - 若评测报 DTensor / math-verify 错误，确认 eval_six_benchmarks.sh 已 git pull 到最新（已内置 eopd 环境选择）。
