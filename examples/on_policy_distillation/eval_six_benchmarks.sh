@@ -2,7 +2,8 @@
 # 六基准评测脚本（对应论文 Table 2）：MATH500 / AMC23 / Minerva / OlympiadBench / AIME24 / AIME25
 #
 # 流程：
-#   1) 对每个 benchmark，用 verl.trainer.main_generation 以
+#   1) 对每个 benchmark，用 generate_offline_vllm.py（离线 vLLM LLM，绕开本仓库
+#      已 broken 的 verl.trainer.main_generation）以
 #      temperature=1.0, top_p=0.8, max response length=8192, n_samples=8 生成 8 条回答
 #      （论文 Table 2 评测设定：8 samples/question）
 #   2) 用 score_avg_pass_at_k.py 计算 Avg@8 与 Pass@8（math_verify 判定答案等价）
@@ -97,27 +98,21 @@ for i in "${!BENCHMARKS[@]}"; do
     OUT="${GEN_DIR}/${B}.parquet"
 
     echo "===== Generating ${B} (n_samples=${N_SAMPLES}) ====="
-    $PY -m verl.trainer.main_generation \
-        trainer.nnodes=${NNODES} \
-        trainer.n_gpus_per_node=${N_GPUS_PER_NODE} \
-        data.path="${IN}" \
-        data.prompt_key=prompt \
-        data.batch_size=${GEN_BATCH_SIZE} \
-        data.n_samples=${N_SAMPLES} \
-        data.output_path="${OUT}" \
-        model.path="${MODEL_PATH}" \
-        +model.trust_remote_code=True \
-        ++model.override_config.attn_implementation=sdpa \
-        ++rollout.name=hf \
-        rollout.temperature=${TEMPERATURE} \
-        rollout.top_p=${TOP_P} \
-        rollout.top_k=-1 \
-        rollout.prompt_length=${MAX_PROMPT_LENGTH} \
-        rollout.response_length=${MAX_RESPONSE_LENGTH} \
-        rollout.tensor_model_parallel_size=${TP} \
-        ++rollout.pipeline_model_parallel_size=1 \
-        rollout.gpu_memory_utilization=${GPU_MEM_UTIL} \
-        rollout.max_num_batched_tokens=${MAX_NUM_BATCHED_TOKENS}
+    $PY examples/on_policy_distillation/generate_offline_vllm.py \
+        --model_path "${MODEL_PATH}" \
+        --data_path "${IN}" \
+        --output_path "${OUT}" \
+        --prompt_key prompt \
+        --n_samples ${N_SAMPLES} \
+        --temperature ${TEMPERATURE} \
+        --top_p ${TOP_P} \
+        --top_k -1 \
+        --max_prompt_length ${MAX_PROMPT_LENGTH} \
+        --max_tokens ${MAX_RESPONSE_LENGTH} \
+        --batch_size ${GEN_BATCH_SIZE} \
+        --tensor_parallel_size ${TP} \
+        --gpu_memory_utilization ${GPU_MEM_UTIL} \
+        --trust_remote_code
 
     SCORE_INPUTS+=("${B}=${OUT}")
 done
