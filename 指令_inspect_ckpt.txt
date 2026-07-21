@@ -1,0 +1,27 @@
+# ============================================================
+# 检查 checkpoint 真实结构（确认训练权重以什么形式存在）
+# 用途：之前评测报“huggingface 目录无 model.safetensors”，本脚本查清
+#       权重究竟在 actor/huggingface/ 还是 actor/（FSDP 分片），以便决定转换方案。
+# 用法：cd 到仓库根目录后整段复制执行。
+# ============================================================
+
+CKPT=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD
+S=global_step_330
+
+echo "==== $S/actor/huggingface/ (完整列表) ===="
+ls -la "$CKPT/$S/actor/huggingface/"
+
+echo "==== $S/actor/ (完整列表) ===="
+ls -la "$CKPT/$S/actor/"
+
+echo "==== 所有 step 的 actor/ 下内容（找权重类文件）===="
+for d in "$CKPT"/global_step_*/actor; do
+  echo "--- $(basename "$(dirname "$d")")"
+  ls "$d" 2>/dev/null | grep -E 'safetensors|distcp|bin|ckpt|index' || echo "    (无权重类文件)"
+done
+
+echo "==== 所有 step 的 actor/huggingface/ 下内容 ===="
+for d in "$CKPT"/global_step_*/actor/huggingface; do
+  echo "--- $(basename "$(dirname "$(dirname "$d")")")"
+  ls "$d" 2>/dev/null || echo "    (目录不存在)"
+done
