@@ -1,0 +1,65 @@
+# ============================================================
+# EOPD 评测「分数怎么算」说明 + 运行命令
+# 对应论文 Table 2：6 个数学基准，指标 Avg@8 与 Pass@8
+# ============================================================
+
+# ------------------------------------------------------------
+# 一、分数到底怎么算（算法 / 公式）
+# ------------------------------------------------------------
+# 来源：examples/on_policy_distillation/score_avg_pass_at_k.py
+# 输入：main_generation 生成的 <bench>.parquet，每行一个 prompt、
+#       带一个 responses 列表（k=8 条模型回答）和 ground_truth（标准答案）。
+
+# 步骤（对每个 prompt）：
+#   1) 对该 prompt 生成的 k=8 条回答，逐条用 math_verify 判定对错：
+#          score_i = compute_score(回答_i, 标准答案)  ∈ {0, 1}   (1=答对)
+#   2) 该 prompt 的「单次正确率」：
+#          avg_prompt = mean(score_1, ..., score_8)          # 8 条里平均答对几条
+#   3) 该 prompt 是否「至少答对一条」：
+#          pass_prompt = 1.0  if max(score_1..8) > 0  else  0.0
+
+# 步骤（对整张基准，共 N 个 prompt）：
+#   Avg@8   = mean(avg_prompt_1, ..., avg_prompt_N) × 100      # 期望正确率（每条回答单独看）
+#   Pass@8  = mean(pass_prompt_1, ..., pass_prompt_N) × 100    # 8 条里至少 1 条对的比例
+#   单位：百分比（%）
+
+# 步骤（跨 6 个基准的整体均值，用于 Table 2）：
+#   mean_avg_at_k  = (Avg@8_MATH500 + ... + Avg@8_AIME25) / 6
+#   mean_pass_at_k = (Pass@8_MATH500 + ... + Pass@8_AIME25) / 6
+#   注意：这里是对 6 个基准做【简单平均】（每个基准等权），不是按题目总数加权平均。
+
+# 一句话区分：
+#   - Avg@8  ：8 条回答里「每条单独答对」的比例的平均值（= 期望单次正确率）
+#   - Pass@8 ：8 条回答里「至少 1 条答对」的比例（= 一次抽 8 条能否命中）
+
+# 与训练中 val/.../acc/mean@1 的区别：
+#   训练里的 acc/mean@1 是「每题只生成 1 条」的正确率；
+#   评测的 Avg@8/Pass@8 是「每题生成 8 条」后按上面公式聚合，二者不可直接比较。
+
+# ------------------------------------------------------------
+# 二、运行命令（生成 8 条回答 → 打分，一步到位）
+# ------------------------------------------------------------
+# 评测脚本会：对每个基准用 verl.trainer.main_generation 以
+#   temperature=1.0, top_p=0.8, max response=8192, n_samples=8
+# 生成 8 条回答，再用上面的公式算 Avg@8 / Pass@8。
+# 脚本会自动 conda activate eopd 并用 eopd 环境的 python（避免 base 的 DTensor 报错）。
+
+# ===== 新 VM（8 卡；先把 global_step_XXX 换成实际步数）=====
+MODEL_PATH=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ===== apex（4 卡 1,2,4,5）=====
+CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4 \
+MODEL_PATH=/home/kejiechen/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/home/kejiechen/data \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# 输出：
+#   生成样本 : $DATA_DIR/eval_gen/<BENCH>.parquet              （可复用，不用每次重生成）
+#   人读分数 : $DATA_DIR/eval_results/<MODEL_TAG>_scores.txt    （末尾有各基准 Avg@8/Pass@8 + 两项的均值）
+#   机读分数 : $DATA_DIR/eval_results/<MODEL_TAG>_scores.json   （per_benchmark / mean_avg_at_k / mean_pass_at_k）
+
+# 查看步数：
+#   cat /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/latest_checkpointed_iteration.txt
