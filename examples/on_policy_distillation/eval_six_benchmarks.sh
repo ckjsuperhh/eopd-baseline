@@ -21,11 +21,27 @@ set -x
 
 # ========================== 环境（与训练一致，必须用 eopd 环境的 torch/math-verify） ==========================
 # 否则会用到 base conda 的 python，其 torch 没有 DTensor、且未装 math-verify，导致整批报错。
+# 做法：先尝试 conda activate；若当前 python 的 torch 仍缺 DTensor，则回退到 eopd 环境的绝对路径。
 CONDA_BASE="$(conda info --base 2>/dev/null)" || true
-[ -n "$CONDA_BASE" ] && source "$CONDA_BASE/etc/profile.d/conda.sh" 2>/dev/null
-[ -z "$CONDA_BASE" ] && source "$HOME/miniconda3/etc/profile.d/conda.sh" 2>/dev/null || true
-conda activate "${CONDA_ENV:-eopd}"
-echo "Using python: $(command -v python3)  (torch: $(python3 -c 'import torch,sys;print(torch.__version__,sys.executable)' 2>/dev/null))"
+if [ -n "$CONDA_BASE" ]; then
+  source "$CONDA_BASE/etc/profile.d/conda.sh" 2>/dev/null
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  source "$HOME/miniconda3/etc/profile.d/conda.sh" 2>/dev/null
+fi
+conda activate "${CONDA_ENV:-eopd}" 2>/dev/null || true
+
+if ! python3 -c "from torch.distributed.tensor import DTensor" >/dev/null 2>&1; then
+  _eopd_py="/opt/conda/envs/${CONDA_ENV:-eopd}/bin/python3"
+  if [ -x "$_eopd_py" ]; then
+    PY="$_eopd_py"
+  else
+    echo "WARNING: eopd python not found at $_eopd_py; using $(command -v python3)"
+    PY="$(command -v python3)"
+  fi
+else
+  PY="$(command -v python3)"
+fi
+echo "Using python: $PY  (torch: $($PY -c 'import torch,sys;print(torch.__version__,sys.executable)' 2>/dev/null))"
 
 # ========================== 评测模型 ==========================
 MODEL_PATH=${MODEL_PATH:-"/models/Qwen3-1.7B-Base"}   # 指向训练后的 HF checkpoint
@@ -76,7 +92,7 @@ for i in "${!BENCHMARKS[@]}"; do
     OUT="${GEN_DIR}/${B}.parquet"
 
     echo "===== Generating ${B} (n_samples=${N_SAMPLES}) ====="
-    python3 -m verl.trainer.main_generation \
+    $PY -m verl.trainer.main_generation \
         trainer.nnodes=${NNODES} \
         trainer.n_gpus_per_node=${N_GPUS_PER_NODE} \
         data.path="${IN}" \
@@ -103,7 +119,7 @@ echo "===== Scoring all benchmarks ====="
 echo "Scores will be saved to:"
 echo "  $SCORE_TXT"
 echo "  $SCORE_JSON"
-python3 examples/on_policy_distillation/score_avg_pass_at_k.py \
+$PY examples/on_policy_distillation/score_avg_pass_at_k.py \
     --output "$SCORE_JSON" \
     $(printf -- "--input %s " "${SCORE_INPUTS[@]}") | tee "$SCORE_TXT"
 echo "DONE. 评测分数已存: $SCORE_TXT  (机器可读: $SCORE_JSON)"
