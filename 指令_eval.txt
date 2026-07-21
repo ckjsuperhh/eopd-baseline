@@ -5,6 +5,11 @@
 # 之前报错 `ImportError: cannot import name 'DTensor'` 与 `pip install math-verify`，
 # 都是因为用了 base conda 的 python。脚本现已内置 `conda activate eopd`，
 # 但请确保运行时 conda 可用；若你手动 `conda activate eopd` 后再跑更稳妥。
+#
+# 【重要】评测已改用【离线 vLLM】（examples/on_policy_distillation/generate_offline_vllm.py），
+# 绕开本 fork 已 broken 的 verl.trainer.main_generation。因此 eopd 环境必须装 vllm：
+#   python -c "import vllm"   # 报错就 pip install vllm（先用 eopd 的 pip）。
+# 新 VM 的完整自包含流程见 指令_eval_vm.txt（含 vllm 预检 + checkpoint 转换）。
 
 # 基准：MATH500 / AMC23 / Minerva / OlympiadBench / AIME24 / AIME25
 # 指标：Avg@8 与 Pass@8（每题生成 8 条回答，math_verify 判定答案等价）

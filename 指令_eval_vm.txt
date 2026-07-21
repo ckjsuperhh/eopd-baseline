@@ -1,0 +1,80 @@
+# ============================================================
+# 新 VM：EOPD 评测（6 基准 / Avg@8 / Pass@8）自包含流程
+# 对应论文 Table 2。先 cd 到仓库根目录再执行整段。
+# ============================================================
+# 评测对象：EOPD 训练产出的学生模型（Qwen3-1.7B-Base）。
+# 评测方式：每个题生成 8 条回答（temperature=1.0, top_p=0.8, max 8192 token），
+#           用 math_verify 判定答案等价，算 Avg@8 与 Pass@8。
+#
+# 本仓库的评测已改用【离线 vLLM】（examples/on_policy_distillation/generate_offline_vllm.py），
+# 绕开本 fork 已 broken 的 verl.trainer.main_generation。因此 eopd 环境必须装好 vllm。
+# ============================================================
+
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+
+# ---------- 0. 拉取最新评测脚本 ----------
+git checkout -- examples/on_policy_distillation/eval_six_benchmarks.sh 2>/dev/null
+git pull
+# 确认三个关键文件已到位（离线生成器 + 计分器带 --output）：
+ls -l examples/on_policy_distillation/generate_offline_vllm.py \
+      examples/on_policy_distillation/score_avg_pass_at_k.py \
+      examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ---------- 1. 环境预检（关键！缺 vllm 会直接失败）----------
+/opt/conda/envs/eopd/bin/python3 - <<'PY'
+import importlib, sys
+ok = True
+for m in ("vllm", "math_verify", "transformers", "pandas"):
+    try:
+        mod = importlib.import_module(m)
+        print(f"[OK] {m} {getattr(mod, '__version__', '')}")
+    except Exception as e:
+        ok = False
+        print(f"[MISSING] {m}: {e}")
+sys.exit(0 if ok else 1)
+PY
+# 若任一显示 [MISSING]，先装（用 eopd 的 pip）：
+#   /opt/conda/envs/eopd/bin/pip install vllm math-verify
+# 装完重跑上面预检直到全 OK。
+
+# ---------- 2. 把 FSDP 分片合并导出成 HF（必须，step 330 的 huggingface/ 没有权重）----------
+# 背景：训练存盘时 huggingface/ 只写了 config/tokenizer，权重在 actor/ 下的
+#       model_world_size_8_rank_0..7.pt（8 个 FSDP 分片）。用 verl.model_merger 合并。
+#       单进程 CPU 合并，1.7B 很快。注意用 eopd 的 python（含 DTensor/verl）。
+CKPT=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD
+STEP=global_step_330      # 训练最后一步；如需更早点（如 320）改这里即可
+
+/opt/conda/envs/eopd/bin/python3 -m verl.model_merger merge \
+  --backend fsdp \
+  --trust-remote-code \
+  --local_dir "$CKPT/$STEP/actor" \
+  --target_dir "$CKPT/$STEP/actor/huggingface"
+
+# 验证：huggingface/ 下应出现 model.safetensors（权重）
+ls -la "$CKPT/$STEP/actor/huggingface" | grep -E 'safetensors' && echo "转换成功" || echo "转换失败：未见权重文件"
+
+# ---------- 3. 跑评测（8 卡机器；离线 vLLM 用 TP=1 单卡即可，其余卡空闲）----------
+MODEL_PATH="$CKPT/$STEP/actor/huggingface" \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# 分数输出：
+#   生成样本 : $DATA_DIR/eval_gen/<BENCH>.parquet          （自动落盘，可复用）
+#   评测分数 : $DATA_DIR/eval_results/<MODEL_TAG>_scores.txt   （人读，末尾有各基准 Avg@8/Pass@8 及均值）
+#              $DATA_DIR/eval_results/<MODEL_TAG>_scores.json   （机读，含 per_benchmark / mean_avg_at_k / mean_pass_at_k）
+# <MODEL_TAG> 由 MODEL_PATH 自动生成（如 Qwen3-1.7B-Base-MATH-EOPD_global_step_330）
+
+# ---------- 4. 看结果 ----------
+tail -20 /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results/*_scores.txt
+
+# ============================================================
+# 备注
+# - 评测会生成 8×8192 token 的样本，6 个基准合计约 1.5 万条样本，单卡跑约几十分钟到数小时，请耐心等。
+# - 离线 vLLM 默认 tensor_parallel_size=1（1.7B 单卡最快），其余 7 卡空闲属正常。
+#   若想用更多卡，可在命令前加 TP=8（但 1.7B 用 TP=8 反而更慢，不建议）。
+# - OPD 的评测命令完全一样，只是 MODEL_PATH 指向 METHOD=opd 训练产出的 checkpoint
+#   （/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-OPD/$STEP/actor/huggingface，同样先转换）。
+# - 若报错找不到某 <bench>/test.parquet：数据应在 dk/data 已齐；缺失可重跑
+#   bash scripts/eopd/data_preprocess/run_all_preprocess.sh
+# ============================================================
