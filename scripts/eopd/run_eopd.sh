@@ -57,6 +57,8 @@ if [ "${OFFLINE:-0}" = "1" ]; then
   export TRANSFORMERS_OFFLINE=1
 fi
 export VLLM_USE_V1=1
+# 让训练日志实时刷新（写到文件/管道时也逐行输出，便于 tail -f 监控）
+export PYTHONUNBUFFERED=1
 
 # ---- 必需的模型 / 数据路径 ----
 # 数据默认从 DATA_DIR 取（与 run_all_preprocess.sh / eval_six_benchmarks.sh 共用），

@@ -1,0 +1,38 @@
+# ============================================================
+# 新 VM：拉取修复 + 8 卡启动 EOPD 训练（tmux + 日志重定向）
+# 先 cd 到仓库根目录再执行
+# ============================================================
+
+# (0) 进仓库
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+
+# (1) 拉取修复（若之前跑过 sed 改过 run_eopd.sh，先丢弃本地改动再 pull，避免冲突）
+git checkout -- scripts/eopd/run_eopd.sh 2>/dev/null
+git pull
+
+# (2) 确认修复已到位（应看到三行 export，不再用默认的 /data/math/train.parquet）
+grep -n 'export DATA_DIR\|export TRAIN_FILE\|export VAL_FILE' scripts/eopd/run_eopd.sh
+
+# (3) 启动训练（单行长命令，整段复制粘贴即可）
+tmux kill-session -t eopd 2>/dev/null; tmux new -d -s eopd "PYTHONUNBUFFERED=1 STUDENT_MODEL_PATH=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base TEACHER_MODEL_PATH=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-8B DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data CKPT_DIR=/root/ckpts bash scripts/eopd/run_eopd.sh > /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd_train.log 2>&1"
+
+# (4) 看是否真起来（不应再出现 /data/math/train.parquet，应能看到 dk/data/dapo_math17k.parquet）
+sleep 40; tail -40 /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd_train.log
+
+# (5) 看训练进度（出现 Training Progress 即表示正常）
+grep -o 'Training Progress:.*' /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd_train.log | tail -3
+
+# (6) 看 GPU 占用（8 张卡都应接近 100%）
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader
+
+# (7) 之后随时查看日志 / 进度
+tail -f /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd_train.log
+tmux attach -t eopd      # 进会话看实时输出，Ctrl-b d 退出（训练继续）
+
+# ============================================================
+# 备注
+# - 数据已在 dk/data 准备好（6 基准 + dapo_math17k + smoke 全部成功），无需重跑预处理。
+# - CKPT_DIR 必须指向有「写配额」的路径；若 /root 也满，换成其他有空间的目录。
+#   日志里若出现 Errno 122，说明 CKPT_DIR 仍在 GPFS 配额内，改路径重跑。
+# - 这是新 VM 的 8 卡配置；apex 那台保持原 4 卡（1,2,4,5），不要改动。
+# ============================================================

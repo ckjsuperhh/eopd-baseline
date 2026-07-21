@@ -1,0 +1,59 @@
+# ============================================================
+# EOPD 评测使用说明（对应论文 Table 2 的 6 个数学基准）
+# 基准：MATH500 / AMC23 / Minerva / OlympiadBench / AIME24 / AIME25
+# 指标：Avg@8 与 Pass@8（每题生成 8 条回答，math_verify 判定答案等价）
+# ============================================================
+
+# ---------- 0. 前置：6 个基准的 test.parquet 必须就位 ----------
+# 评测脚本读取 $DATA_DIR/<bench>/test.parquet（与预处理共用目录）。
+# 若缺失，先补齐（在【评测所在机器】上执行）：
+#   bash scripts/eopd/data_preprocess/run_all_preprocess.sh
+# 注：apex 上可能只备了 math500，需要确认 6 个都在；新 VM 的 dk/data 已齐。
+
+# ---------- 1. 选定要评测的 checkpoint 步数 ----------
+# 训练产出的 HF 格式模型在：
+#   <CKPT_ROOT>/<PROJECT>/<EXP>/global_step_XXX/actor/huggingface
+# 选最大的 global_step（或 latest_checkpointed_iteration.txt 里的步数）。
+# 查看最新步数：
+#   cat <CKPT_ROOT>/<PROJECT>/<EXP>/latest_checkpointed_iteration.txt
+
+# ---------- 2. 跑评测（二选一，按机器填路径）----------
+
+# ===== 新 VM（8 卡，训练在 /root/ckpts，数据在 dk/data）=====
+MODEL_PATH=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ===== apex（4 卡 1,2,4,5，checkpoint 在 $HOME/ckpts，数据在 $HOME/data）=====
+CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4 \
+MODEL_PATH=/home/kejiechen/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_XXX/actor/huggingface \
+DATA_DIR=/home/kejiechen/data \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ---------- 3. 输出在哪 ----------
+# 生成样本： $DATA_DIR/eval_gen/<BENCH>.parquet   （自动落盘，可复用）
+# 评测分数： $DATA_DIR/eval_results/<MODEL_TAG>_scores.txt   （人读）
+#            $DATA_DIR/eval_results/<MODEL_TAG>_scores.json   （机读，含 per_benchmark / mean_avg_at_k / mean_pass_at_k）
+# <MODEL_TAG> 由 MODEL_PATH 自动生成（如 Qwen3-1.7B-Base-MATH-EOPD_global_step_XXX）
+
+# ---------- 4. 结果怎么看 ----------
+# scores.txt 末尾会打印每个基准的 Avg@8 / Pass@8，以及两项的均值：
+#   - Avg@8  ：8 条样本里「每条单独答对」的比例的平均值（期望正确率）
+#   - Pass@8 ：8 条里「至少一条答对」的比例
+# 把 EOPD 的均值和 OPD（另一次 METHOD=opd 训练）的均值摆一起，就是 Table 2。
+
+# ---------- 5. 冒烟自测（可选，先验证评测管线通顺）----------
+# 不耗训练 checkpoint，直接拿原始 base 模型跑一遍 6 基准，确认脚本/数据没问题：
+MODEL_PATH=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ============================================================
+# 注意事项
+# - 评测会占用 GPU 并生成 8×8192 token 的样本，耗时几十分钟；务必等【训练结束】后再跑，避免抢卡。
+# - apex 评测用 1,2,4,5（别人的 0,3 别碰）；新 VM 用满 8 卡。
+# - 若报错说找不到某 <bench>/test.parquet，回到第 0 步补齐预处理。
+# - OPD 的评测命令完全一样，只是 MODEL_PATH 指向 METHOD=opd 训练产出的 checkpoint。
+# ============================================================
