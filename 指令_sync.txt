@@ -1,0 +1,63 @@
+# ============================================================
+# 数据同步：VM 小数据 → GitHub → Mac 本地
+# 适用：预处理后的基准 parquet、训练语料、评测分数等「小文件」
+# 不适用：checkpoint / 模型权重（单文件几 GB，超 GitHub 100MB 上限，勿传）
+# ============================================================
+
+# ---------- A. 在 VM 上：把小数据拷进仓库并推到 GitHub ----------
+
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+
+# 1. 在仓库里建目录，把刚需小数据拷进来
+mkdir -p data results
+SRC=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data
+cp $SRC/math500/test.parquet        data/ 2>/dev/null
+cp $SRC/aime24/test.parquet        data/ 2>/dev/null
+cp $SRC/aime25/test.parquet        data/ 2>/dev/null
+cp $SRC/amc23/test.parquet         data/ 2>/dev/null
+cp $SRC/minerva/test.parquet       data/ 2>/dev/null
+cp $SRC/olympiadbench/test.parquet data/ 2>/dev/null
+cp $SRC/dapo_math17k.parquet       data/ 2>/dev/null
+
+# 2. 评测结果（跑完 eval_six_benchmarks.sh 后才有；没有就先跳过）
+cp $SRC/eval_results/*_scores.*    results/ 2>/dev/null
+
+# 3. 先确认体积——确保都是小文件（总量应远小于 100MB 才推得动）
+du -sh data results
+
+# 4. 只 add 这两个目录
+#    ⚠️ 绝不用 git add -A / git add .（会连未跟踪的 verl 源码一起提交）
+#    ⚠️ 绝不要把 checkpoint / 模型权重拷进 data/（超 100MB 会被 GitHub 拒绝）
+git add data results
+git status            # 确认只多了 data/ results/ 下的小文件
+
+# 5. 提交 + 推送
+git commit -m "add benchmark parquets and eval results"
+git push origin main
+
+# ---------- B. 在 Mac 上：拉取下来 ----------
+
+# 如果 Mac 上还没克隆过这个仓库：
+git clone https://github.com/ckjsuperhh/eopd-baseline.git
+cd eopd-baseline
+
+# 如果已经克隆过（本地已有）：
+git pull
+
+# 数据就在这里：
+ls data/        # 6 个 test.parquet + dapo_math17k.parquet
+ls results/     # 评测分数（跑完评测推送后才有）
+
+# ---------- C. 跑完评测后，再补推一次结果 ----------
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+cp /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results/*_scores.* results/
+git add results
+git commit -m "add EOPD eval scores (6 benchmarks)"
+git push origin main
+# 然后 Mac 上 git pull 即可拿到 Table 2 的 Avg@8/Pass@8 结果
+
+# ============================================================
+# 大文件（checkpoint / 模型权重）不要走 GitHub：
+#   - Mac 本地拉：rsync -avz -P -e "ssh -p 22" VM:/root/ckpts/EOPD ./eopd_ckpts
+#   - 或走 HuggingFace Hub：huggingface-cli upload 用户名/仓库名 /root/ckpts/.../global_step_330/actor/huggingface
+# ============================================================
