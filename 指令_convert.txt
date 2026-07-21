@@ -1,0 +1,34 @@
+# ============================================================
+# 把 FSDP 分片 checkpoint 合并导出成 HF 格式（用于评测）
+# ============================================================
+# 背景：训练存盘时 huggingface/ 只写出了 config/tokenizer，没写出权重；
+#       真正的权重在 actor/ 下的 model_world_size_8_rank_0..7.pt（8 个 FSDP 分片）。
+#       用 verl 自带的 model_merger 把分片合并成标准 HF 模型，写回 actor/huggingface/。
+# 说明：单进程即可（无需 torchrun），CPU 合并，1.7B 很快。
+#       注意用 eopd 环境的 python（含 DTensor / verl）。
+# 用法：cd 到仓库根目录后，先跑【第一步】，确认权重出现后，再跑【第二步】评测。
+
+# ---------------- 第一步：转换（以 global_step_330 为例，最终步、权重最完整）----------------
+/opt/conda/envs/eopd/bin/python3 -m verl.model_merger merge \
+  --backend fsdp \
+  --trust-remote-code \
+  --local_dir /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_330/actor \
+  --target_dir /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_330/actor/huggingface
+
+# 验证：huggingface/ 下应出现 model.safetensors（或 model-0000X-of-0000Y.safetensors 分片）
+ls -la /root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_330/actor/huggingface/ | grep -E 'safetensors'
+
+# ---------------- 第二步：评测（MODEL_PATH 指向刚导出的 huggingface 目录）----------------
+MODEL_PATH=/root/ckpts/EOPD/Qwen3-1.7B-Base-MATH-EOPD/global_step_330/actor/huggingface \
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data \
+N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# 分数输出：
+#   /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results/<MODEL_TAG>_scores.txt
+#   （末尾有每个基准 Avg@8 / Pass@8 及两项的均值 mean_avg_at_k / mean_pass_at_k）
+
+# ---------------- 备注 ----------------
+# - 若想用更早的步（如 320）：把上面两处的 global_step_330 改成 global_step_320 即可
+#   （每个 step 的 actor/ 下都有完整的 model_world_size_8_rank_*.pt 分片，都可转换）。
+# - 转换是幂等的：重复跑只会覆盖写出同样的权重，不会损坏已有 config/tokenizer。
