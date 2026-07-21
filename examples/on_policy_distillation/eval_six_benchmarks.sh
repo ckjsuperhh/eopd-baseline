@@ -122,7 +122,13 @@ echo "===== Scoring all benchmarks ====="
 echo "Scores will be saved to:"
 echo "  $SCORE_TXT"
 echo "  $SCORE_JSON"
+# 兼容不同版本的 score_avg_pass_at_k.py：只有支持 --output 时才传（旧版只打印到 stdout）。
+if $PY examples/on_policy_distillation/score_avg_pass_at_k.py -h 2>&1 | grep -q -- '--output'; then
+  SCORE_OUT_ARG="--output $SCORE_JSON"
+else
+  SCORE_OUT_ARG=""
+fi
 $PY examples/on_policy_distillation/score_avg_pass_at_k.py \
-    --output "$SCORE_JSON" \
+    $SCORE_OUT_ARG \
     $(printf -- "--input %s " "${SCORE_INPUTS[@]}") | tee "$SCORE_TXT"
 echo "DONE. 评测分数已存: $SCORE_TXT  (机器可读: $SCORE_JSON)"
