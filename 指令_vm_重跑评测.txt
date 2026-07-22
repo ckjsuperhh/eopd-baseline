@@ -1,0 +1,68 @@
+# ============================================================
+# 新 VM：停掉单卡评测 → 拉新脚本 → 用 8 卡数据并行重跑 EOPD 评测
+# ============================================================
+# 背景：之前那次评测是单卡（TP=1）跑的，8 张卡只用了 1 张，nvidia-smi 看只有
+#       GPU0 有 94% 占用、1 个 python 进程，所以很慢（MATH500 要 ~2.3h）。
+#       已 push 的 eval_six_benchmarks.sh 支持数据并行：设 NUM_SHARDS=8 会启动 8 个
+#       独立 vLLM 实例（各占 1 卡、各 TP=1）同时生成，约 8 倍速。
+# 本文件作用：确认新脚本到位 → 停旧单卡进程 → 8 卡重跑。
+# 注意：数据并行不加速“单个实例”，而是 8 个并发；单看某 shard 日志仍是 ~824 toks/s 属正常。
+# ============================================================
+
+REPO=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+cd "$REPO"
+
+# ----------------------------------------------------------
+# 0. 确认新脚本已到位（应显示 18d490a 那条 commit；脚本含 num_shards 逻辑）
+# ----------------------------------------------------------
+git log --oneline -1
+grep -c num_shards examples/on_policy_distillation/eval_six_benchmarks.sh   # 应 > 0
+
+# 若上一步 git log 不是 18d490a（说明还没拉到多卡版本），先拉：
+git pull
+git log --oneline -1        # 再确认出现 18d490a
+
+# ----------------------------------------------------------
+# 1. 停掉当前单卡评测（只杀评测进程，不影响训练/其它）
+# ----------------------------------------------------------
+pkill -f generate_offline_vllm.py
+pkill -f eval_six_benchmarks.sh
+sleep 3
+# 复核：应只剩 0 个评测 python 进程（或 nvidia-smi 所有卡显存回落到 ~20MiB）
+nvidia-smi | grep -c generate_offline_vllm.py
+
+# ----------------------------------------------------------
+# 2. 用 8 卡数据并行重跑 EOPD 评测
+# ----------------------------------------------------------
+# 变量内联，复制即用。STEP 默认 global_step_330（VM 当前末步）；要换步数改这里。
+CKPT=/root/ckpts/EOPD
+STEP=global_step_330
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data
+MODEL_PATH="$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP/actor/huggingface"
+
+MODEL_PATH="$MODEL_PATH" \
+DATA_DIR=$DATA_DIR \
+N_GPUS_PER_NODE=8 NUM_SHARDS=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+
+# ----------------------------------------------------------
+# 3. 验证真的 8 卡了（另开窗口执行）
+# ----------------------------------------------------------
+# 终端应【先打印 8 行】 launched shard 0 (pid ...) ... launched shard 7
+# vLLM 引擎日志会进 eval_gen/<BENCH>.shard*.log（不再刷在终端）
+# 再跑 nvidia-smi 应看到 8 张卡都有 ~25GiB 占用、8 个 python 进程：
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv
+nvidia-smi | grep -c python     # 应 = 8
+
+# ----------------------------------------------------------
+# 4. 看结果
+# ----------------------------------------------------------
+tail -20 $DATA_DIR/eval_results/*EOPD*_scores.txt
+
+# ============================================================
+# 备注
+# - 单看某个 shard 日志速度仍 ~824 toks/s 属正常；加速来自 8 并发，非单实例变快。
+# - MATH500 单卡 ~2.3h → 8 卡 ~20 分钟；6 基准合计单卡 ~7-8h → 8 卡 ~1h。
+# - 某分片卡住看对应 $DATA_DIR/eval_gen/<BENCH>.shardK.log。
+# - 若重跑后 nvidia-smi 仍只有 1 张卡，回来把 `git log --oneline -1` 输出贴给我。
+# ============================================================
