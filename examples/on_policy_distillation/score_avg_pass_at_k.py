@@ -59,20 +59,38 @@ def score_file(name, path):
     pass_list = []  # 1 if any correct else 0
 
     for _, row in df.iterrows():
-        responses = row["responses"]
+        responses = row.get("responses", None)
+        if responses is None:
+            continue
         if isinstance(responses, str):
             # safety: might be stored as a string
             import ast
 
-            responses = ast.literal_eval(responses)
-        responses = list(responses)
+            try:
+                responses = ast.literal_eval(responses)
+            except Exception:
+                responses = []
+        try:
+            responses = list(responses)
+        except Exception:
+            continue
+        if not responses:
+            continue
 
         gt = _get_ground_truth(row.get("reward_model", None))
         if gt is None:
             continue
 
-        scores = [compute_score(str(r), str(gt)) for r in responses]
-        scores = [float(s) for s in scores]
+        # 单条坏数据不应拖垮整个评测：compute_score 异常时记 0 分
+        scores = []
+        for r in responses:
+            try:
+                s = compute_score(str(r), str(gt))
+                scores.append(float(s))
+            except Exception:
+                scores.append(0.0)
+        if not scores:
+            continue
         k = len(scores)
         k_per_prompt.append(k)
         avg_list.append(np.mean(scores))
