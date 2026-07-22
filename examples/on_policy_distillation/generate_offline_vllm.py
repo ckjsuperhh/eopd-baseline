@@ -77,8 +77,8 @@ def merge_shards(input_glob, output_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model_path", required=True)
-    ap.add_argument("--data_path", required=True)
+    ap.add_argument("--model_path", required=False)
+    ap.add_argument("--data_path", required=False)
     ap.add_argument("--output_path", required=True)
     ap.add_argument("--prompt_key", default="prompt")
     ap.add_argument("--n_samples", type=int, default=8)
@@ -109,6 +109,10 @@ def main():
             ap.error("--merge 需要 --input_glob")
         merge_shards(args.input_glob, args.output_path)
         return
+
+    # 生成模式需要 model_path / data_path（合并模式不需要）
+    if not args.model_path or not args.data_path:
+        ap.error("--model_path 和 --data_path 在生成模式下必填")
 
     if not (0 <= args.shard_id < args.num_shards):
         ap.error(f"--shard_id 必须 ∈ [0, {args.num_shards})，收到 {args.shard_id}")
