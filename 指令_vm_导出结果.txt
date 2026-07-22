@@ -1,0 +1,39 @@
+#!/bin/bash
+# ============================================================
+# VM 上跑：把 EOPD 评测分数从 data 目录导出到仓库并 push
+# 本地随后 `git pull` 即可拿到结果（不要传 parquet 响应，太大）
+# ============================================================
+set -e
+
+REPO=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+SRC=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results
+# 用带标记的目录名，避免和后续 OPD 评测结果混淆
+DST=$REPO/eval_results/vm_eopd_step330
+mkdir -p $DST
+
+echo "==> 复制评分 json"
+cp "$SRC/actor_huggingface_scores.json" "$DST/actor_huggingface_scores.json"
+
+echo "==> 由 json 生成可读 txt（即使原 stdout 没落盘也有一份）"
+/opt/conda/envs/eopd/bin/python3 - <<'PY'
+import json
+src = "/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data/eval_results/actor_huggingface_scores.json"
+dst = "/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline/eval_results/vm_eopd_step330/actor_huggingface_scores.txt"
+with open(src) as f:
+    data = json.load(f)
+text = json.dumps(data, indent=2, ensure_ascii=False)
+with open(dst, "w") as f:
+    f.write(text + "\n")
+print(text)
+PY
+
+cd "$REPO"
+echo "==> git 提交并推送"
+git pull --ff-only
+git add eval_results/vm_eopd_step330/
+git status --short
+git commit -m "add VM EOPD eval scores (step330)"
+git push
+
+echo "DONE -> 本地仓库执行: git pull"
+echo "      结果在 eval_results/vm_eopd_step330/"
