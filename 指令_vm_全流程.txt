@@ -78,8 +78,10 @@ ls -la "$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor/huggingface" | grep -E 
 # ----------------------------------------------------------
 # 第 4 步：EOPD 评测（6 基准 / Avg@8 / Pass@8）
 # ----------------------------------------------------------
+# NUM_SHARDS=8 → 数据并行，启动 8 个独立 vLLM 实例各占 1 卡、分数 = 8 倍速。
+#   （1.7B 模型用 TP>1 反而更慢，所以用数据并行而非张量并行。单卡回退设 NUM_SHARDS=1。）
 MODEL_PATH="$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor/huggingface" \
-DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 \
+DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 NUM_SHARDS=8 \
   bash examples/on_policy_distillation/eval_six_benchmarks.sh
 # 输出：
 #   $DATA_DIR/eval_gen/<BENCH>.parquet                      （生成样本，可复用）
@@ -118,7 +120,7 @@ ls -la "$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor/huggingface" | grep -E 's
 # 第 7 步：OPD 评测
 # ----------------------------------------------------------
 MODEL_PATH="$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor/huggingface" \
-DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 \
+DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 NUM_SHARDS=8 \
   bash examples/on_policy_distillation/eval_six_benchmarks.sh
 tail -20 $DATA_DIR/eval_results/*OPD*_scores.txt
 
@@ -134,8 +136,10 @@ echo "==== OPD  ====";  tail -3 $DATA_DIR/eval_results/*OPD*_scores.txt
 
 # ============================================================
 # 备注
-# - 评测会生成 8×8192 token 样本，6 基准合计约 1.5 万条，单卡 vLLM（TP=1）跑约几十分钟到数小时，耐心等。
-# - 离线 vLLM 默认 tensor_parallel_size=1（1.7B 单卡最快），其余 7 卡空闲属正常。
+# - 评测会生成 8×8192 token 样本，6 基准合计约 1.5 万条。设 NUM_SHARDS=8 后 8 个 vLLM 实例
+#   各占 1 卡同时生成，约 8 倍速；单卡回退 NUM_SHARDS=1 也能跑（只是慢）。
+# - 离线 vLLM 用 tensor_parallel_size=1（1.7B 单卡最快）；提速靠数据并行（多实例），不是张量并行。
+# - 每个 shard 有独立日志 $DATA_DIR/eval_gen/<BENCH>.shardK.log，某分片卡住可单独看。
 # - 训练务必等上一段彻底结束、GPU 空闲再开下一段（训练会占满 8 卡）。
 # - apex 那台 EOPD 评测已跑完（可作参照）；本文件只覆盖 VM 全流程。
 # ============================================================

@@ -8,6 +8,13 @@
 #      （论文 Table 2 评测设定：8 samples/question）
 #   2) 用 score_avg_pass_at_k.py 计算 Avg@8 与 Pass@8（math_verify 判定答案等价）
 #
+# 【多卡加速：数据并行】
+#   1.7B 这种小模型用 tensor_parallel_size>1 反而更慢（通信开销盖过计算），正确提速方式是
+#   数据并行：把每个 benchmark 的 prompts 切成 NUM_SHARDS 份，启动 NUM_SHARDS 个独立 vLLM
+#   实例（各占 1 卡、各 TP=1）同时生成，跑完用 --merge 拼回一份完整 parquet。
+#   设 NUM_SHARDS=N（或 NUM_SHARDS=auto 自动用满所有可见 GPU）即可，约 N 倍速。
+#   默认 NUM_SHARDS=1（单卡，向后兼容）。
+#
 # 评测对象：训练后的学生模型。请把 MODEL_PATH 指向【训练产出的 HF 格式 checkpoint】
 #          （verl 默认保存在 trainer.default_local_dir 下，需先导出/转为 HF 格式；
 #            快速冒烟可临时指向原始 base 模型）。
@@ -55,6 +62,14 @@ MODEL_PATH=${MODEL_PATH:-"/models/Qwen3-1.7B-Base"}   # 指向训练后的 HF ch
 # ========================== 资源 ==========================
 NNODES=${NNODES:-1}
 N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-8}
+# NUM_SHARDS：数据并行份数 = 同时启动的独立 vLLM 实例数（各占 1 卡、TP=1）。
+#   默认 1（单卡，向后兼容）。多卡机器用满所有卡：NUM_SHARDS=auto 或 NUM_SHARDS=8。
+#   注意：每个实例都会独立把 1.7B 模型加载到各自 GPU，因此 NUM_SHARDS 不应 > 可用 GPU 数。
+if [ "${NUM_SHARDS:-}" = "auto" ]; then
+  NUM_SHARDS=$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l)
+  NUM_SHARDS=${NUM_SHARDS:-1}
+fi
+NUM_SHARDS=${NUM_SHARDS:-1}
 TP=${TP:-1}                              # tensor_model_parallel_size（1.7B 用 1 即可）
 GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.5}
 
@@ -97,22 +112,64 @@ for i in "${!BENCHMARKS[@]}"; do
     IN="${INPUT_PATHS[$i]}"
     OUT="${GEN_DIR}/${B}.parquet"
 
-    echo "===== Generating ${B} (n_samples=${N_SAMPLES}) ====="
-    $PY examples/on_policy_distillation/generate_offline_vllm.py \
-        --model_path "${MODEL_PATH}" \
-        --data_path "${IN}" \
-        --output_path "${OUT}" \
-        --prompt_key prompt \
-        --n_samples ${N_SAMPLES} \
-        --temperature ${TEMPERATURE} \
-        --top_p ${TOP_P} \
-        --top_k -1 \
-        --max_prompt_length ${MAX_PROMPT_LENGTH} \
-        --max_tokens ${MAX_RESPONSE_LENGTH} \
-        --batch_size ${GEN_BATCH_SIZE} \
-        --tensor_parallel_size ${TP} \
-        --gpu_memory_utilization ${GPU_MEM_UTIL} \
-        --trust_remote_code
+    echo "===== Generating ${B} (n_samples=${N_SAMPLES}, num_shards=${NUM_SHARDS}) ====="
+    if [ "${NUM_SHARDS}" -le 1 ]; then
+        # 单进程（向后兼容 / 单卡机器）
+        $PY examples/on_policy_distillation/generate_offline_vllm.py \
+            --model_path "${MODEL_PATH}" \
+            --data_path "${IN}" \
+            --output_path "${OUT}" \
+            --prompt_key prompt \
+            --n_samples ${N_SAMPLES} \
+            --temperature ${TEMPERATURE} \
+            --top_p ${TOP_P} \
+            --top_k -1 \
+            --max_prompt_length ${MAX_PROMPT_LENGTH} \
+            --max_tokens ${MAX_RESPONSE_LENGTH} \
+            --batch_size ${GEN_BATCH_SIZE} \
+            --tensor_parallel_size ${TP} \
+            --gpu_memory_utilization ${GPU_MEM_UTIL} \
+            --trust_remote_code
+    else
+        # 数据并行：启动 NUM_SHARDS 个独立 vLLM 实例，各占 1 卡、各处理 1/NUM_SHARDS 的 prompts
+        PIDS=()
+        for s in $(seq 0 $((NUM_SHARDS - 1))); do
+            CUDA_VISIBLE_DEVICES="$s" $PY examples/on_policy_distillation/generate_offline_vllm.py \
+                --model_path "${MODEL_PATH}" \
+                --data_path "${IN}" \
+                --output_path "${OUT}.shard${s}.parquet" \
+                --prompt_key prompt \
+                --n_samples ${N_SAMPLES} \
+                --temperature ${TEMPERATURE} \
+                --top_p ${TOP_P} \
+                --top_k -1 \
+                --max_prompt_length ${MAX_PROMPT_LENGTH} \
+                --max_tokens ${MAX_RESPONSE_LENGTH} \
+                --batch_size ${GEN_BATCH_SIZE} \
+                --tensor_parallel_size ${TP} \
+                --gpu_memory_utilization ${GPU_MEM_UTIL} \
+                --trust_remote_code \
+                --num_shards ${NUM_SHARDS} --shard_id "$s" \
+                > "${GEN_DIR}/${B}.shard${s}.log" 2>&1 &
+            PIDS+=($!)
+            echo "  launched shard $s (pid ${PIDS[$s]}, CUDA_VISIBLE_DEVICES=$s)"
+        done
+        # 等待所有 shard，任一失败则报错退出
+        FAIL=0
+        for s in $(seq 0 $((NUM_SHARDS - 1))); do
+            if ! wait ${PIDS[$s]}; then
+                echo "ERROR: shard $s of ${B} failed (see ${GEN_DIR}/${B}.shard${s}.log)"
+                FAIL=1
+            fi
+        done
+        if [ "$FAIL" -ne 0 ]; then
+            echo "FATAL: generation of ${B} failed"; exit 1
+        fi
+        # 合并各分片为一份完整 parquet
+        $PY examples/on_policy_distillation/generate_offline_vllm.py --merge \
+            --input_glob "${OUT}.shard*.parquet" \
+            --output_path "${OUT}"
+    fi
 
     SCORE_INPUTS+=("${B}=${OUT}")
 done
