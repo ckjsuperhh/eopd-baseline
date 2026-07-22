@@ -1,0 +1,141 @@
+# ============================================================
+# 新 VM：复现 EOPD 论文 Table 2 全流程（EOPD + OPD 对照）
+# ============================================================
+# 目标：在 VM 上把 EOPD 训完 → 转换 checkpoint → 6 基准评测（Avg@8/Pass@8），
+#       再训一个 OPD 对照 → 同样评测，两者均值之差即论文的 Pass@8 增益。
+# 本流程【不改任何配置/数据/提示语】，完全复用现有脚本。
+#
+# 前置（你已在 VM 上处理的数据部分）：
+#   - 仓库已就绪：/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+#   - 6 基准 test.parquet 在 $DATA_DIR（MATH500/AMC23/Minerva/OlympiadBench/AIME24/AIME25）
+#   - 训练数据 dapo_math17k.parquet 在 $DATA_DIR
+#   - 学生/教师模型在 $MODELW
+#
+# 评测用【离线 vLLM】（examples/on_policy_distillation/generate_offline_vllm.py），
+# 绕开本 fork 已 broken 的 verl.trainer.main_generation，故 eopd 环境必须装 vllm。
+# ============================================================
+
+REPO=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data
+MODELW=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights
+CKPT=/root/ckpts/EOPD
+PY=/opt/conda/envs/eopd/bin/python3
+cd "$REPO"
+
+# ----------------------------------------------------------
+# 第 0 步：拉取最新脚本（离线 vLLM 评测 + 修好的 score 脚本）
+# ----------------------------------------------------------
+git checkout -- scripts/eopd/run_eopd.sh examples/on_policy_distillation/eval_six_benchmarks.sh 2>/dev/null
+git pull
+
+# ----------------------------------------------------------
+# 第 1 步：EOPD 训练（训满 total_epochs=3，脚本已设好，自然结束即可）
+# ----------------------------------------------------------
+# 若 VM 上 EOPD 已在跑/已训完（step 330 左右），可跳过本步。
+# resume_mode=auto 会从最新 checkpoint 续训，无需手动指定步数。
+tmux kill-session -t eopd 2>/dev/null
+tmux new -d -s eopd "PYTHONUNBUFFERED=1 \
+  STUDENT_MODEL_PATH=$MODELW/Qwen3-1.7B-Base \
+  TEACHER_MODEL_PATH=$MODELW/Qwen3-8B \
+  DATA_DIR=$DATA_DIR CKPT_DIR=/root/ckpts \
+  CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 N_GPUS_PER_NODE=8 \
+  bash scripts/eopd/run_eopd.sh > $REPO/eopd_train.log 2>&1"
+sleep 40; tail -20 $REPO/eopd_train.log      # 应看到 dk/data/dapo_math17k.parquet，无 /data/math/train.parquet 报错
+grep -o 'Training Progress:.*' $REPO/eopd_train.log | tail -3
+# 训练产物： $CKPT/Qwen3-1.7B-Base-MATH-EOPD/global_step_XXX/actor
+# 收尾标志：日志出现 Final validation metrics: .../acc/mean@1
+
+# ----------------------------------------------------------
+# 第 2 步：环境预检（关键！缺 vllm 评测会直接失败）
+# ----------------------------------------------------------
+$PY - <<'PY'
+import importlib, sys
+ok = True
+for m in ("vllm", "math_verify", "transformers", "pandas"):
+    try:
+        mod = importlib.import_module(m)
+        print(f"[OK] {m} {getattr(mod, '__version__', '')}")
+    except Exception as e:
+        ok = False
+        print(f"[MISSING] {m}: {e}")
+sys.exit(0 if ok else 1)
+PY
+# 若有 [MISSING]，先装（用 eopd 的 pip）： $PY -m pip install vllm math-verify ；装完重跑预检。
+
+# ----------------------------------------------------------
+# 第 3 步：转换 EOPD checkpoint（FSDP 分片 → HF）
+# ----------------------------------------------------------
+# 背景：训练存盘时 actor/huggingface/ 只写了 config/tokenizer，权重在 actor/ 下的
+#       model_world_size_8_rank_0..7.pt。verl.model_merger 合并出 model.safetensors。
+#       单进程 CPU 合并，1.7B 很快。step 330 是 VM 当前末步；要更早/更晚改 STEP 即可。
+STEP_EOPD=global_step_330
+$PY -m verl.model_merger merge --backend fsdp --trust-remote-code \
+  --local_dir "$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor" \
+  --target_dir "$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor/huggingface"
+ls -la "$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor/huggingface" | grep -E 'safetensors' \
+  && echo "EOPD 转换成功" || echo "EOPD 转换失败：未见权重文件"
+
+# ----------------------------------------------------------
+# 第 4 步：EOPD 评测（6 基准 / Avg@8 / Pass@8）
+# ----------------------------------------------------------
+MODEL_PATH="$CKPT/Qwen3-1.7B-Base-MATH-EOPD/$STEP_EOPD/actor/huggingface" \
+DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+# 输出：
+#   $DATA_DIR/eval_gen/<BENCH>.parquet                      （生成样本，可复用）
+#   $DATA_DIR/eval_results/<MODEL_TAG>_scores.txt           （人读，末尾有各基准 Avg@8/Pass@8 + 均值）
+#   $DATA_DIR/eval_results/<MODEL_TAG>_scores.json          （机读，含 per_benchmark / mean_avg_at_k / mean_pass_at_k）
+tail -20 $DATA_DIR/eval_results/*EOPD*_scores.txt
+
+# ----------------------------------------------------------
+# 第 5 步：OPD 训练（对照 baseline，只多 METHOD=opd）
+# ----------------------------------------------------------
+# 同样训满 3 epoch；产物在 $CKPT/Qwen3-1.7B-Base-MATH-OPD/。
+tmux kill-session -t opd 2>/dev/null
+tmux new -d -s opd "PYTHONUNBUFFERED=1 \
+  METHOD=opd \
+  STUDENT_MODEL_PATH=$MODELW/Qwen3-1.7B-Base \
+  TEACHER_MODEL_PATH=$MODELW/Qwen3-8B \
+  DATA_DIR=$DATA_DIR CKPT_DIR=/root/ckpts \
+  CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 N_GPUS_PER_NODE=8 \
+  bash scripts/eopd/run_eopd.sh > $REPO/opd_train.log 2>&1"
+sleep 40; tail -20 $REPO/opd_train.log
+grep -o 'Training Progress:.*' $REPO/opd_train.log | tail -3
+
+# ----------------------------------------------------------
+# 第 6 步：转换 OPD checkpoint
+# ----------------------------------------------------------
+# OPD 末步以 latest_checkpointed_iteration.txt 为准：
+STEP_OPD=global_step_$(cat "$CKPT/Qwen3-1.7B-Base-MATH-OPD/latest_checkpointed_iteration.txt" 2>/dev/null || echo 330)
+echo "OPD step = $STEP_OPD"
+$PY -m verl.model_merger merge --backend fsdp --trust-remote-code \
+  --local_dir "$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor" \
+  --target_dir "$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor/huggingface"
+ls -la "$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor/huggingface" | grep -E 'safetensors' \
+  && echo "OPD 转换成功" || echo "OPD 转换失败：未见权重文件"
+
+# ----------------------------------------------------------
+# 第 7 步：OPD 评测
+# ----------------------------------------------------------
+MODEL_PATH="$CKPT/Qwen3-1.7B-Base-MATH-OPD/$STEP_OPD/actor/huggingface" \
+DATA_DIR=$DATA_DIR N_GPUS_PER_NODE=8 \
+  bash examples/on_policy_distillation/eval_six_benchmarks.sh
+tail -20 $DATA_DIR/eval_results/*OPD*_scores.txt
+
+# ----------------------------------------------------------
+# 第 8 步：拼 Table 2
+# ----------------------------------------------------------
+# 把 EOPD 与 OPD 两个 _scores.txt 末尾的 mean_avg_at_k / mean_pass_at_k 摆一起：
+#   - EOPD ：第 4 步的 <...EOPD...>_scores.txt
+#   - OPD  ：第 7 步的 <...OPD...>_scores.txt
+# 两者取相同/各自末步对比，差值即论文 EOPD 相对 OPD 的 Pass@8 增益（论文 ~+2.4 for 1.7B）。
+echo "==== EOPD ====";  tail -3 $DATA_DIR/eval_results/*EOPD*_scores.txt
+echo "==== OPD  ====";  tail -3 $DATA_DIR/eval_results/*OPD*_scores.txt
+
+# ============================================================
+# 备注
+# - 评测会生成 8×8192 token 样本，6 基准合计约 1.5 万条，单卡 vLLM（TP=1）跑约几十分钟到数小时，耐心等。
+# - 离线 vLLM 默认 tensor_parallel_size=1（1.7B 单卡最快），其余 7 卡空闲属正常。
+# - 训练务必等上一段彻底结束、GPU 空闲再开下一段（训练会占满 8 卡）。
+# - apex 那台 EOPD 评测已跑完（可作参照）；本文件只覆盖 VM 全流程。
+# ============================================================
