@@ -36,6 +36,16 @@ import pandas as pd
 
 from verl.utils.reward_score.math_verify import compute_score
 
+# 抑制 math_verify / verl 在评分时打印的 WARNING 噪声（如“未能提取预测”）。
+# 这些只是单条样本无法解析答案的诊断信息，不影响最终结果；我们只保留末尾的
+# 分数表（用 print 输出，不受 logging 级别影响）。
+import logging
+
+for _name in ("math_verify", "verl", "verl.utils.reward_score",
+              "verl.utils.reward_score.math_verify"):
+    logging.getLogger(_name).setLevel(logging.ERROR)
+logging.getLogger().setLevel(logging.ERROR)  # root 兜底，确保 propagate 的 WARNING 也不落地
+
 
 def _get_ground_truth(reward_model):
     if isinstance(reward_model, dict):
