@@ -46,6 +46,13 @@ for _name in ("math_verify", "verl", "verl.utils.reward_score",
     logging.getLogger(_name).setLevel(logging.ERROR)
 logging.getLogger().setLevel(logging.ERROR)  # root 兜底，确保 propagate 的 WARNING 也不落地
 
+# 进度条（环境若未装 tqdm 则退化为无进度条的普通迭代，不影响评分）
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, *a, **k):
+        return iterable
+
 
 def _get_ground_truth(reward_model):
     if isinstance(reward_model, dict):
@@ -68,7 +75,7 @@ def score_file(name, path):
     avg_list = []  # per-prompt fraction correct
     pass_list = []  # 1 if any correct else 0
 
-    for _, row in df.iterrows():
+    for _, row in tqdm(df.iterrows(), total=len(df), desc=f"[{name}]", leave=False):
         responses = row.get("responses", None)
         if responses is None:
             continue
@@ -132,7 +139,7 @@ def main():
         parser.error("At least one --input BENCHMARK=/path/to/parquet is required")
 
     results = []
-    for item in args.input:
+    for item in tqdm(args.input, desc="benchmarks", leave=True):
         if "=" not in item:
             parser.error(f"--input must be NAME=PATH, got: {item}")
         name, path = item.split("=", 1)
