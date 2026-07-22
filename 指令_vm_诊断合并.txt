@@ -1,0 +1,26 @@
+# ============================================================
+# 新 VM：诊断“合并(merge)失败”——为什么没有 merged parquet
+# ============================================================
+# 背景：8 卡生成全部成功（48 个 shard parquet 都在），但 6 个 benchmark 的
+#       合并文件（MATH500.parquet 等）一个都没生成。原脚本没检查合并的退出码，
+#       所以合并抛异常后被静默跳过，最后在评分读文件时才崩。
+# 本文件：对每个 benchmark 单独跑一次合并，把真实报错打到终端，便于定位 merge_shards 的 bug。
+# ============================================================
+
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data
+PY=/opt/conda/envs/eopd/bin/python3
+BENCH=(MATH500 AMC23 Minerva OlympiadBench AIME24 AIME25)
+
+for B in "${BENCH[@]}"; do
+  echo "==================== merge $B ===================="
+  $PY examples/on_policy_distillation/generate_offline_vllm.py --merge \
+    --input_glob "$DATA_DIR/eval_gen/$B.parquet.shard*.parquet" \
+    --output_path "$DATA_DIR/eval_gen/$B.parquet" 2>&1 | tail -20
+done
+
+echo "==================== 确认 merged 是否写到别处 ===================="
+find /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data -name "*.parquet" | grep -v shard | head
+
+# 把上面整段输出（尤其每个 benchmark 的 Traceback / XXXError）贴回给我即可。
+# 预期：6 个 benchmark 会报同样的错（系统性问题），看到一条就能定位。
