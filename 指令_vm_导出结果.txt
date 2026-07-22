@@ -28,6 +28,10 @@ print(text)
 PY
 
 cd "$REPO"
+echo "==> 设置 git 身份（仅本仓库，用 GitHub noreply 邮箱以正确归属）"
+git config user.name "ckjsuperhh"
+git config user.email "ckjsuperhh@users.noreply.github.com"
+
 echo "==> git 提交并推送"
 git pull --ff-only
 git add eval_results/vm_eopd_step330/
