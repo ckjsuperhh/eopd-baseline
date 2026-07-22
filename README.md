@@ -275,3 +275,25 @@ Founded in 2023, ByteDance Seed Team is dedicated to crafting the industry's mos
 ---
 
 We are HIRING! Send us an [email](mailto:the.verl.project@gmail.com) if you are interested in internship/FTE opportunities in RL for agents.
+
+---
+
+## EOPD 复现 (Qwen3-1.7B-Base + Qwen3-8B)
+
+本仓库在 verl fork 基础上实现了 **EOPD / OPD**（on-policy distillation，详见 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_on_policy_distill`）。完整的环境、数据处理、训练/评测脚本、结果对照与日志路径见 **[EOPD复现.md](EOPD复现.md)**。
+
+简要结果（Avg@8 / Pass@8，6 数学基准；论文 Table 2 目标 vs 本次复现）：
+
+| Benchmark | 论文 EOPD | apex EOPD (s174) | VM EOPD (s330) |
+|---|---|---|---|
+| MATH500 | 68.73 / 87.60 | 43.85 / 82.60 | 33.75 / 75.60 |
+| AMC23 | 41.88 / 75.00 | 23.13 / 67.50 | 17.50 / 52.50 |
+| Minerva | 30.15 / 50.74 | 14.20 / 38.97 | 8.78 / 28.68 |
+| OlympiadBench | 30.28 / 51.11 | 19.75 / 47.77 | 7.19 / 22.81 |
+| AIME24 | 10.42 / 23.33 | 5.42 / 23.33 | 2.92 / 13.33 |
+| AIME25 | 5.83 / 16.67 | 3.75 / 16.67 | 0.83 / 6.67 |
+| **MEAN Pass@8** | **50.74** | **46.14** | **33.26** |
+
+> 当前仅训到数百 step（论文为 3 epoch），分数偏低属正常；评测协议与论文一致。OlympiadBench 子集规模在机器间不一致，跨机平均仅作参考。OPD baseline 评测待补齐以给出 EOPD−OPD 差值。
+
+结果存档：`eval_results/apex_eopd_step174/`、`eval_results/vm_eopd_step330/`。

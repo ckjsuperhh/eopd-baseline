@@ -1,0 +1,14 @@
+
+============================================================
+Benchmark            N   k       Avg@k      Pass@k
+------------------------------------------------------------
+MATH500            500   8      43.85%      82.60%
+AMC23               40   8      23.12%      67.50%
+Minerva            272   8      14.20%      38.97%
+OlympiadBench      674   8      19.75%      47.77%
+AIME24              30   8       5.42%      23.33%
+AIME25              30   8       3.75%      16.67%
+============================================================
+MEAN (simple)                   18.35%      46.14%
+
+[score_avg_pass_at_k] JSON summary written -> /home/kejiechen/data/eval_results/apex_eval_hf_global_step_174_scores.json
