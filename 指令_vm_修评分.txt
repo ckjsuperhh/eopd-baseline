@@ -1,0 +1,45 @@
+# ============================================================
+# 新 VM：评分步骤崩溃的修复（只重跑评分，不重生成）
+# ============================================================
+# 背景：8 卡生成 + 合并 6 个 benchmark 都已成功（eval_gen/*.parquet 都在），
+#       但 score_avg_pass_at_k.py 在评分时崩溃。已确认 verl 能正常 import，
+#       所以崩溃在评分循环里（某条数据触发异常）。已把评分脚本改成“单条坏数据记 0 分、
+#       不拖垮整体”，commit 21a8492 已 push。本文件只重跑评分（几秒~几分钟），
+#       无需重跑 ~1.5h 的生成。
+# ============================================================
+
+cd /inspire/hdd/project/multi-agent/zhangweinan-24046/dk/CacheOPD/eopd-baseline
+git pull                                  # 拿到修好的 score_avg_pass_at_k.py (21a8492)
+git log --oneline -1                      # 应看到 21a8492
+
+DATA_DIR=/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data
+PY=/opt/conda/envs/eopd/bin/python3
+
+# 直接对已有的 6 个“合并后” parquet 重跑评分（关键：不碰生成，不重跑 vLLM）
+$PY examples/on_policy_distillation/score_avg_pass_at_k.py \
+  --output $DATA_DIR/eval_results/actor_huggingface_scores.json \
+  --input MATH500=$DATA_DIR/eval_gen/MATH500.parquet \
+  --input AMC23=$DATA_DIR/eval_gen/AMC23.parquet \
+  --input Minerva=$DATA_DIR/eval_gen/Minerva.parquet \
+  --input OlympiadBench=$DATA_DIR/eval_gen/OlympiadBench.parquet \
+  --input AIME24=$DATA_DIR/eval_gen/AIME24.parquet \
+  --input AIME25=$DATA_DIR/eval_gen/AIME25.parquet \
+  | tee $DATA_DIR/eval_results/actor_huggingface_scores.txt
+
+# 末尾应打印各基准 Avg@k / Pass@k 以及 MEAN（simple）一行。
+echo "==== 结果 ===="; tail -12 $DATA_DIR/eval_results/actor_huggingface_scores.txt
+
+# ----------------------------------------------------------
+# 如果【仍然】报错（理应不会了），把完整报错抓出来发我：
+# ----------------------------------------------------------
+# $PY examples/on_policy_distillation/score_avg_pass_at_k.py \
+#   --input MATH500=$DATA_DIR/eval_gen/MATH500.parquet > /tmp/score.txt 2>&1
+# echo "EXIT=$?"; cat /tmp/score.txt
+# 并把 /tmp/score.txt 的完整内容（从 Traceback 到最后一行 XXXError）发我。
+
+# ============================================================
+# 备注
+# - 这一步只读 eval_gen/*.parquet、写 eval_results/*_scores.{txt,json}，不涉及 GPU/训练。
+# - 若以后改了模型或想重评，直接重跑本文件即可；只有换 checkpoint 时才需要先做
+#   FSDP→HF 转换再评。
+# ============================================================
