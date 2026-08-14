@@ -126,32 +126,16 @@
 | 数据 `DATA_DIR` | `/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data` | `/home/kejiechen/data` |
 | 训练 ckpt（FSDP 分片） | `/root/ckpts/EOPD` | `/home/kejiechen/ckpts` |
 | 评测产物 | `/inspire/.../dk/data/eval_results/` | `/home/kejiechen/data/eval_results/` |
-| 训练日志 | 见 `指令_vm_全流程.txt` 指定 | `eopd_train.log` / `eopd_train_eopd.log` / `eopd_paper_repro_*.log` / `eopd_monitor.log` |
+| 训练日志 | `eopd_train.log` / `eopd_train_eopd.log` | `eopd_train_eopd.log` / `eopd_paper_repro_*.log` / `eopd_monitor.log` |
 
 - 训练后 HF 权重需手动合并到各 ckpt 下的 `actor/huggingface/`（见 §3）。
 - wandb：各机器默认上报，按需查看。
 
 ---
 
-## 7. 复现指令索引（仓库内 `指令_*.txt`）
+## 7. 已知问题 / 待办
 
-| 文件 | 用途 |
-|---|---|
-| `指令_vm_全流程.txt` | VM 完整流程：EOPD 训练→转换→评测 + OPD 训练→转换→评测 → Table 2 |
-| `指令_vm_重跑评测.txt` | 停单卡→拉新→8 卡重评测 |
-| `指令_vm_修评分.txt` | 只重评分（不重生成） |
-| `指令_vm_诊断合并.txt` / `指令_vm_重合并并评分.txt` | 合并失败诊断 / 重合并+评分 |
-| `指令_vm_导出结果.txt` / `指令_apex_导出结果.txt` | 把评测分数导出进仓库并 push |
-| `指令_vm_git_ssh.txt`（待建） | VM 配 SSH 推 GitHub，避免 token 反复输入 |
-
-> 规范：所有远程执行（训练/评测/同步/诊断/修复）都先写成仓库内 `指令_*.txt`，远程 `git pull` 后 `bash` 执行；详见 `经验总结_EOPD评测部署.md`。
-
----
-
-## 8. 已知问题 / 待办
-
-1. **OPD baseline 评测未完成** → 按 `指令_vm_全流程.txt` 跑 OPD 训练+评测，补齐 Table 2 的 EOPD−OPD 差值。
+1. **OPD baseline 评测未完成** → 使用 `scripts/eopd/run_opd.sh` 训练并按 `scripts/eopd/run_eval.sh` 评测，补齐 Table 2 的 EOPD−OPD 差值。
 2. **VM OlympiadBench 评测不完整**（1517/2126 行）→ 核对该 bench 分片生成是否漏跑，补齐后重评。
 3. **跨机 OlympiadBench 子集规模不一致** → 统一为论文子集 `OE_TO_maths_en_COMP` 全量后再横向比较。
 4. 评测脚本不依赖已 broken 的 `verl.trainer.main_generation`，改用离线 vLLM（`generate_offline_vllm.py`）。
-5. 详见 `经验总结_EOPD评测部署.md`（协作规范、提速、已知 bug 与修复、诊断姿势）。
