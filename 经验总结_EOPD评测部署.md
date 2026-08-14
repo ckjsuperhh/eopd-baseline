@@ -7,9 +7,6 @@
 
 ## 1. 协作规范（最重要）
 
-- **指令必须写成仓库内 `指令_*.txt` 再提交 git**，远程机器 `git pull` 后 `bash 指令_*.txt` 执行。
-  - 包括**诊断命令、修复补丁的 bash 步骤**也要走 txt，不只训练/评测启动流程。
-  - 简单的单行确认命令可仍在聊天里给；但训练 / 评测 / 同步 / 诊断 / 修复一律走 txt。
 - **脚本要加进度条（tqdm）**，让用户能安心等待：
   - 长耗时脚本（评测生成、评分）必须能实时显示进度（如 `benchmarks x/6` + 每 benchmark 百分比）。
   - 已落地：`score_avg_pass_at_k.py` 有双层 tqdm（外层 benchmark 计数 + 内层逐题）。生成脚本靠 `launched shard 0..7` 日志 + 分片 log。
@@ -77,20 +74,25 @@
 
 ---
 
-## 7. 与论文 Table 2 对照的注意点
-
-- **EOPD vs OPD 的 Pass@8 差值**才是论文 Table 2 的核心结论（论文 ~+2.4 @1.7B）。两边用同一份数据，差值可比。
-- **当前分数偏低主要是训练不足**（VM EOPD step 330 / apex step 174，远少于论文的 3 epoch），不是评测 bug。评测协议与论文一致（temp=1.0, top_p=0.8, max 8192, k=8, zero-shot, "Please reason step by step, and put your final answer within \boxed{}."）。
-- 对照时看 `actor_huggingface_scores.txt` 末尾 6 行 + `MEAN (simple)`，以及 json 里的 `mean_avg_at_k` / `mean_pass_at_k`。
-
----
-
-## 8. 关键文件速查
+## 7. 关键文件速查
 
 - `examples/on_policy_distillation/generate_offline_vllm.py` — 离线 vLLM 生成 + 分片合并
 - `examples/on_policy_distillation/eval_six_benchmarks.sh` — 6 基准评测主流程（多卡数据并行）
 - `examples/on_policy_distillation/score_avg_pass_at_k.py` — Avg@8 / Pass@8 评分（带进度条 + 健壮 + 静默 WARNING）
-- `指令_vm_全流程.txt` — VM 完整流程（EOPD 训练→转换→评测 + OPD 训练→转换→评测 → Table 2）
-- `指令_vm_重跑评测.txt` — 停单卡→拉新→8 卡重评测
-- `指令_vm_修评分.txt` — 只重评分（不重生成）
-- `指令_vm_诊断合并.txt` / `指令_vm_重合并并评分.txt` — 合并失败诊断 / 重合并+评分
+
+---
+
+## 8. 训练到评测的完整性检查
+
+- **先合并再评测**：FSDP 的训练目录可能只有分片和 tokenizer，即使目录名看起来像 HF checkpoint
+  也未必有可加载权重。评测前执行
+  `python -m verl.model_merger merge --backend fsdp`，并确认输出目录实际存在
+  `model.safetensors` 或 safetensors index。
+- **只在生成成功后做后续步骤**：分片生成失败时，不要继续 `--merge` 或评分；保留 shard parquet
+  和对应 log，修复后只补失败分片。合并产物必须保留全局 `__idx__` 排序，不能按 shard 完成顺序
+  拼接。
+- **协议必须锁定**：六个 benchmark、zero-shot prompt、`k=8`、temperature `1.0`、top-p
+  `0.8`、max new tokens `8192` 共同构成一次可比较的 EOPD 评测。改动其中任一项时，结果只能
+  作为新协议，不能同论文 Table 2 或历史结果直接比较。
+- **有效性边界**：正式结论至少要有 OPD 与 EOPD 的同协议、同训练预算对照。历史记录中仅有
+  undertrained 的 EOPD 轨迹，不应把它单独解读为 EOPD 相对 OPD 的增益或退化。

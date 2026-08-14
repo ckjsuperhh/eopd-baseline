@@ -3,6 +3,16 @@
 After installing `verl`, run `examples/on_policy_distillation/on_policy_it.sh`.
 Prepare the required datasets by preprocessing in `examples/data_preprocess`.
 
+### Monitoring with TensorBoard
+
+The launch script enables TensorBoard by default and writes event files to
+`$CKPT_DIR/$PROJECT_NAME/$EXP_NAME-{EOPD|OPD}/tensorboard` (or the path set
+in `TENSORBOARD_DIR`). During training, view scalar metrics with:
+
+```bash
+tensorboard --logdir "$TENSORBOARD_DIR"
+```
+
 ### On-Policy Distillation Settings (from `on_policy_it.sh`)
 
 - `algorithm.adv_estimator=on_policy`: enables on-policy advantage estimation.

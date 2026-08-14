@@ -90,6 +90,8 @@ CLIP_RATIO_LOW=${CLIP_RATIO_LOW:-0.2}
 CLIP_RATIO_HIGH=${CLIP_RATIO_HIGH:-0.2}
 
 METHOD=${METHOD:-eopd}
+TENSORBOARD_DIR=${TENSORBOARD_DIR:-"${CKPT_BASE}/${PROJECT_NAME}/${EXP_NAME}-${METHOD^^}/tensorboard"}
+export TENSORBOARD_DIR
 
 # ========================== 构建 EOPD/OPD 差异项 ==========================
 EXTRA_ARGS=()
@@ -166,7 +168,7 @@ python3 -m verl.trainer.main_ppo \
     ++actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     +trainer.trainer_class=OnPolicyDistillTrainer \
     +ray_kwargs.ray_init.include_dashboard=False \
-    trainer.logger='["console"]' \
+    trainer.logger='["console","tensorboard"]' \
     trainer.project_name="${PROJECT_NAME}" \
     trainer.experiment_name="${EXP_NAME}" \
     trainer.n_gpus_per_node=${N_GPUS_PER_NODE} \
