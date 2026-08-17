@@ -27,6 +27,12 @@
 
 set -x
 
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export WANDB_MODE=offline
+
 # 评测的 rollout worker 用 FSDP1，初始化时会做跨卡参数广播，要求 GPU 间 P2P 访问；
 # 在容器/多卡拓扑下 P2P 可能不可用（NCCL: peer access is not supported）。
 # 禁用 P2P 让 NCCL 走主机端传输，计算正确性不受影响（仅略慢）。
@@ -57,7 +63,11 @@ fi
 echo "Using python: $PY  (torch: $($PY -c 'import torch,sys;print(torch.__version__,sys.executable)' 2>/dev/null))"
 
 # ========================== 评测模型 ==========================
-MODEL_PATH=${MODEL_PATH:-"/models/Qwen3-1.7B-Base"}   # 指向训练后的 HF checkpoint
+MODEL_PATH=${MODEL_PATH:-"/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base"}   # 指向训练后的 HF checkpoint
+if [ ! -e "${MODEL_PATH}/config.json" ]; then
+    echo "Required local model path is missing: ${MODEL_PATH}/config.json" >&2
+    exit 1
+fi
 
 # ========================== 资源 ==========================
 NNODES=${NNODES:-1}
@@ -87,7 +97,7 @@ GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-64}    # 每个生成 batch 的 prompt 数
 #   基准输入: $DATA_DIR/<bench>/test.parquet
 #   生成样本: $DATA_DIR/eval_gen/<bench>.parquet   (自动落盘，可复用)
 #   评测分数: $DATA_DIR/eval_results/<MODEL_TAG>_scores.{txt,json}  (自动落盘)
-DATA_DIR=${DATA_DIR:-"$HOME/data"}
+DATA_DIR=${DATA_DIR:-"/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data"}
 GEN_DIR=${GEN_DIR:-"$DATA_DIR/eval_gen"}
 RESULT_DIR=${RESULT_DIR:-"$DATA_DIR/eval_results"}
 mkdir -p "${GEN_DIR}" "${RESULT_DIR}"
@@ -104,6 +114,13 @@ INPUT_PATHS=(
     "${DATA_DIR}/aime24/test.parquet"
     "${DATA_DIR}/aime25/test.parquet"
 )
+
+for required_path in "${INPUT_PATHS[@]}"; do
+    if [ ! -f "$required_path" ]; then
+        echo "Required local eval data is missing: $required_path" >&2
+        exit 1
+    fi
+done
 
 # ========================== Step 1: 逐基准生成 ==========================
 SCORE_INPUTS=()

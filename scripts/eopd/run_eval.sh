@@ -16,10 +16,9 @@
 #   CUDA_VISIBLE_DEVICES  0,1,2,3,4,5,6,7
 #   N_GPUS_PER_NODE  8
 #   GPU_MEM_UTIL     0.5
-#   OFFLINE          0
 set -e
 
-: "${MODEL_PATH:?请先设置 MODEL_PATH 指向 HF 格式 checkpoint（含 config.json + model.safetensors + tokenizer）}"
+MODEL_PATH="${MODEL_PATH:-/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -42,15 +41,19 @@ else
 fi
 
 # ---- HuggingFace / 离线 ----
-export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
-if [ "${OFFLINE:-0}" = "1" ]; then
-  export HF_HUB_OFFLINE=1
-  export TRANSFORMERS_OFFLINE=1
-fi
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export WANDB_MODE=offline
 export VLLM_USE_V1=1
 
-export DATA_DIR="${DATA_DIR:-$HOME/data}"
+export DATA_DIR="${DATA_DIR:-/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/data}"
+if [ ! -e "$MODEL_PATH/config.json" ]; then
+  echo "Required local model path is missing: $MODEL_PATH/config.json" >&2
+  exit 1
+fi
 # 默认用满本机所有 GPU（单机 8 卡时即 0..7）。
 # 共享机器请显式覆盖，例如：CUDA_VISIBLE_DEVICES=1,2,4,5 N_GPUS_PER_NODE=4
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"

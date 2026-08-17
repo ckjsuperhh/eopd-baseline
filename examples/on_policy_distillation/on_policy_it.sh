@@ -37,16 +37,28 @@ set -x
 # vLLM V1 引擎需要显式开启（verl 的 main_ppo 默认 runtime_env 不含该变量，
 # 通过 shell 导出后会被 ray worker 继承）
 export VLLM_USE_V1=1
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export WANDB_MODE=offline
 
 # ========================== 路径（按需修改） ==========================
-# 学生 / 教师模型本地路径（apex-llm 已缓存到 hf_cache）
-STUDENT_MODEL_PATH=${STUDENT_MODEL_PATH:-"/models/Qwen3-1.7B-Base"}
-TEACHER_MODEL_PATH=${TEACHER_MODEL_PATH:-"/models/Qwen3-8B"}
+# 学生 / 教师模型本地路径。固定使用已准备好的本地快照，避免误传 HF model id 后回源下载。
+STUDENT_MODEL_PATH="/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-1.7B-Base"
+TEACHER_MODEL_PATH="/inspire/hdd/project/multi-agent/zhangweinan-24046/dk/modelweights/Qwen3-8B"
 
 # 训练数据（MATH，由 examples/data_preprocess/math_dataset.py 生成）
-TRAIN_FILE=${TRAIN_FILE:-"/data/math/train.parquet"}
+TRAIN_FILE="/inspire/hdd/project/multi-agent/zhangweinan-24046/kejiechen/CacheEOPD_fullscale_vm_bundle/data/math/train.parquet"
 # 训练中验证集（建议放 MATH500 test）
-VAL_FILE=${VAL_FILE:-"/data/math500/test.parquet"}
+VAL_FILE="/inspire/hdd/project/multi-agent/zhangweinan-24046/kejiechen/CacheEOPD_fullscale_vm_bundle/data/math/test.parquet"
+
+for required_path in "$STUDENT_MODEL_PATH/config.json" "$TEACHER_MODEL_PATH/config.json" "$TRAIN_FILE" "$VAL_FILE"; do
+    if [ ! -e "$required_path" ]; then
+        echo "Required local path is missing: $required_path" >&2
+        exit 1
+    fi
+done
 
 # ========================== 资源（按需修改） ==========================
 # 默认按 4×A6000-48GB 单节点配置；其他卡数/节点数用环境变量覆盖
